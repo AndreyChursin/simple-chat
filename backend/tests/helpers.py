@@ -52,7 +52,7 @@ async def user(make_client: Callable[..., Awaitable[httpx.AsyncClient]], name: s
 
 
 async def ban(db: AsyncSession, room_id: int, user_id: int, by: int | None = None) -> None:
-    """Room bans arrive with moderation (stage 8); tests insert them directly."""
+    """A room ban straight in the DB, for tests that are not about moderation itself."""
     await db.execute(
         text("INSERT INTO room_bans (room_id, user_id, banned_by_id) VALUES (:r, :u, :b)"),
         {"r": room_id, "u": user_id, "b": by},

@@ -439,3 +439,18 @@ code { font-size: 0.9em; }
 .att-file-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lightbox { display: flex; flex-direction: column; align-items: center; gap: 10px; }
 .lightbox img { max-width: 100%; max-height: 70vh; object-fit: contain; }
+
+/* ---- moderation (FRONTEND_SPEC §4.6) ------------------------------------------------------------ */
+.confirm-box {
+  margin: 8px 0; padding: 10px 12px; border: 1px solid var(--danger); border-radius: var(--radius);
+  background: var(--surface);
+}
+.confirm-box p { margin: 0 0 8px; }
+.confirm-box .field { margin-bottom: 8px; }
+.member-card-mod { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
+.member-card-mod .row-actions { flex-wrap: wrap; }
+.inline-form { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.inline-form select { font: inherit; padding: 6px 8px; border-radius: 6px; border: 1px solid var(--border);
+  background: var(--bg); color: var(--fg); min-width: 0; max-width: 100%; }
+.ban-form { margin-bottom: 16px; padding-bottom: 16px; border-bottom: 1px solid var(--border); }
+.ban-form h3 { margin: 0 0 8px; font-size: 1em; }

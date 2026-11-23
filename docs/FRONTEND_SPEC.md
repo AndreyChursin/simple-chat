@@ -117,18 +117,18 @@
 ### 4.5. Context Panel (комната)
 - **Room info:** имя, описание, visibility (🌐/🔒), дата создания.
 - **Owner** (с presence), **Admins**, **Members** — с точками статусов, сортировка online → AFK → offline, виртуализированный список (до 1000), поиск по участникам при > 50.
-- Клик по участнику → popover: профиль, `Send friend request` (с полем приветствия), `Message` (если друзья), а для admin/owner — `Make admin` (owner), `Remove admin`, `Ban from room` (модерационные действия — этап 8).
+- Клик по участнику → popover: профиль, `Send friend request` (с полем приветствия), `Message` (если друзья), а для admin/owner — `Make admin` (owner), `Remove admin`, `Ban from room` (с подтверждением и необязательной причиной). На owner модерационных действий нет.
 - Кнопки **`Invite user`** (все участники; модалка с поиском по username) и **`Manage room`** (только admin/owner). Для обычного участника — `Leave room`; для owner вместо `Leave room` подсказка «Owner can't leave — delete the room in Manage room → Settings».
 
 ### 4.6. Модальное окно `Manage Room` (admin/owner)
 
-Этап 3 реализует вкладки `[Invitations]` и `[Settings]`; `[Members]`, `[Admins]`, `[Banned users]` добавляются на этапе 8 (модерация).
+Вкладка по умолчанию — `[Members]`. Подтверждение бана — встроенный блок внутри вкладки/popover (не вложенная модалка: Esc закрывал бы обе).
 
 | Вкладка | Содержимое и действия | Кто видит/может |
 |---|---|---|
 | `[Members]` | Таблица: user, presence, role, joined_at; поиск. Действие `Remove (ban)` с подтверждением «Removing a member bans them until unbanned» и опциональной причиной | admin, owner (owner — неуязвим, кнопки скрыты) |
 | `[Admins]` | Список админов; `Add admin` (выбор из участников) — только owner; `Remove admin` — owner и admin (кроме строки owner, отмечена «Owner») | admin видит, owner — полный контроль |
-| `[Banned users]` | Таблица: user, **banned_by**, **banned_at**, reason; `Unban`; `Ban user by username` | admin, owner |
+| `[Banned users]` | Таблица: user, **banned_by**, **banned_at**, reason; `Unban`; `Ban user by username` (+ необязательная причина; username → `GET /api/users/{username}` → `POST bans`) | admin, owner |
 | `[Invitations]` | Pending-приглашения: invitee, inviter, дата; `Revoke`; форма `Invite` | admin, owner |
 | `[Settings]` | name, description, visibility (Public/Private) — редактирует owner, у admin поля read-only. **Danger zone:** `Delete room` — подтверждение вводом имени комнаты; предупреждение «All messages, files and images will be permanently deleted» | owner (удаление) |
 

@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState, type FormEvent } from 'react';
+import { useId, useState, type FormEvent } from 'react';
 import { ApiError } from '../api/client';
+import { fetchProfile } from '../api/contacts';
 import {
   deleteRoom,
   fetchRoomInvitations,
@@ -8,30 +9,258 @@ import {
   roomKeys,
   updateRoom,
   type RoomDetail,
+  type RoomMember,
   type Visibility,
 } from '../api/rooms';
+import { useMe } from '../auth/session';
 import { apiErrorToFields, Field, FormError, FormNotice } from '../components/forms';
 import { Modal } from '../components/Modal';
+import { UserPresence } from '../components/Presence';
+import { usePresenceStore } from '../stores/presence';
+import { InviteForm } from './InviteUserModal';
+import { BAN_HINT, useModeration, useRoomBans, useRoomMembers } from './moderation';
 import { ROOM_DESCRIPTION_MAX, ROOM_NAME_MAX, ROOM_NAME_MIN } from './CreateRoomModal';
 import { useRoomGone } from './useRoomGone';
 
-/** Tabs available so far. Members / Admins / Banned users arrive with moderation (roadmap stage 8). */
-type Tab = 'invitations' | 'settings';
+type Tab = 'members' | 'admins' | 'banned' | 'invitations' | 'settings';
+const TABS: { id: Tab; label: string }[] = [
+  { id: 'members', label: 'Members' },
+  { id: 'admins', label: 'Admins' },
+  { id: 'banned', label: 'Banned users' },
+  { id: 'invitations', label: 'Invitations' },
+  { id: 'settings', label: 'Settings' },
+];
 
+/** Manage Room (FRONTEND_SPEC §4.6), for admins and the owner. */
 export function ManageRoomModal({ room, onClose }: { room: RoomDetail; onClose: () => void }) {
-  const [tab, setTab] = useState<Tab>('invitations');
+  const [tab, setTab] = useState<Tab>('members');
   return (
     <Modal title={`Manage #${room.name}`} onClose={onClose} wide>
       <div className="tabs" role="tablist">
-        {(['invitations', 'settings'] as Tab[]).map((t) => (
-          <button key={t} role="tab" aria-selected={tab === t} className={`tab${tab === t ? ' active' : ''}`}
-            onClick={() => setTab(t)}>
-            {t === 'invitations' ? 'Invitations' : 'Settings'}
+        {TABS.map((t) => (
+          <button key={t.id} role="tab" aria-selected={tab === t.id} className={`tab${tab === t.id ? ' active' : ''}`}
+            onClick={() => setTab(t.id)}>
+            {t.label}
           </button>
         ))}
       </div>
-      {tab === 'invitations' ? <InvitationsTab room={room} /> : <SettingsTab room={room} onClose={onClose} />}
+      {tab === 'members' && <MembersTab room={room} />}
+      {tab === 'admins' && <AdminsTab room={room} />}
+      {tab === 'banned' && <BannedTab room={room} />}
+      {tab === 'invitations' && <InvitationsTab room={room} />}
+      {tab === 'settings' && <SettingsTab room={room} onClose={onClose} />}
     </Modal>
+  );
+}
+
+const ROLE_LABEL = { owner: 'Owner', admin: 'Admin', member: 'Member' } as const;
+
+/** Inline confirmation of a ban with an optional reason (no nested modal: Esc would close both). */
+export function BanConfirm({ username, busy, onConfirm, onCancel }: {
+  username: string;
+  busy: boolean;
+  onConfirm: (reason: string) => void;
+  onCancel: () => void;
+}) {
+  const [reason, setReason] = useState('');
+  const id = useId();
+  return (
+    <div className="confirm-box" role="group" aria-label={`Ban ${username}`}>
+      <p>
+        <strong>Ban {username}?</strong> {BAN_HINT}
+      </p>
+      <div className="field">
+        <label htmlFor={id}>Reason (optional)</label>
+        <input id={id} maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} />
+      </div>
+      <div className="row-actions">
+        <button type="button" className="btn small" onClick={onCancel}>Cancel</button>
+        <button type="button" className="btn small danger" disabled={busy} onClick={() => onConfirm(reason)}>
+          Ban
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function MembersTab({ room }: { room: RoomDetail }) {
+  const me = useMe().data;
+  const members = useRoomMembers(room.id);
+  const live = usePresenceStore((s) => s.byUser);
+  const { ban } = useModeration(room.id);
+  const [filter, setFilter] = useState('');
+  const [confirm, setConfirm] = useState<RoomMember | null>(null);
+  const q = filter.trim().toLowerCase();
+  const rows = (members.data ?? []).filter((m) => !q || m.username.toLowerCase().includes(q));
+  const presenceOf = (m: RoomMember) => (m.id !== null ? live[m.id] : undefined) ?? m.presence;
+
+  return (
+    <div>
+      <FormError message={ban.error ? apiErrorToFields(ban.error).form : null} />
+      <input className="nav-search" type="search" placeholder="Search members…" aria-label="Search members"
+        value={filter} onChange={(e) => setFilter(e.target.value)} />
+      {confirm && (
+        <BanConfirm username={confirm.username} busy={ban.isPending} onCancel={() => setConfirm(null)}
+          onConfirm={(reason) => {
+            ban.mutate({ userId: confirm.id!, reason });
+            setConfirm(null);
+          }} />
+      )}
+      {members.isPending ? (
+        <p className="muted">Loading…</p>
+      ) : (
+        <table className="table">
+          <thead>
+            <tr><th>User</th><th>Status</th><th>Role</th><th>Joined</th><th /></tr>
+          </thead>
+          <tbody>
+            {rows.map((m) => (
+              <tr key={m.id ?? m.username}>
+                <td>
+                  {m.username}
+                  {m.display_name && <span className="muted"> · {m.display_name}</span>}
+                </td>
+                <td><UserPresence user={m} /> {presenceOf(m)}</td>
+                <td>{ROLE_LABEL[m.role]}</td>
+                <td>{new Date(m.joined_at).toLocaleDateString()}</td>
+                <td className="right">
+                  {m.role !== 'owner' && m.id !== null && m.id !== me?.id && (
+                    <button className="btn small danger-outline" onClick={() => setConfirm(m)}>Remove (ban)</button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
+function AdminsTab({ room }: { room: RoomDetail }) {
+  const isOwner = room.my_role === 'owner';
+  const members = useRoomMembers(room.id);
+  const { grant, revoke } = useModeration(room.id);
+  const [candidate, setCandidate] = useState('');
+  const all = members.data ?? [];
+  const admins = all.filter((m) => m.role !== 'member');
+  const candidates = all.filter((m) => m.role === 'member' && m.id !== null);
+  const error = grant.error ?? revoke.error;
+
+  return (
+    <div>
+      <FormError message={error ? apiErrorToFields(error).form : null} />
+      {isOwner && (
+        <form className="inline-form" onSubmit={(e) => {
+          e.preventDefault();
+          if (candidate) grant.mutate(Number(candidate), { onSuccess: () => setCandidate('') });
+        }}>
+          <label htmlFor="f-add-admin">Add admin</label>
+          <select id="f-add-admin" value={candidate} onChange={(e) => setCandidate(e.target.value)}>
+            <option value="">Choose a member…</option>
+            {candidates.map((m) => <option key={m.id} value={m.id!}>{m.username}</option>)}
+          </select>
+          <button type="submit" className="btn small primary" disabled={!candidate || grant.isPending}>Make admin</button>
+        </form>
+      )}
+      {members.isPending ? (
+        <p className="muted">Loading…</p>
+      ) : (
+        <table className="table">
+          <thead>
+            <tr><th>User</th><th>Role</th><th /></tr>
+          </thead>
+          <tbody>
+            {admins.map((m) => (
+              <tr key={m.id ?? m.username}>
+                <td><UserPresence user={m} /> {m.username}</td>
+                <td>{ROLE_LABEL[m.role]}</td>
+                <td className="right">
+                  {m.role === 'admin' && m.id !== null && (
+                    <button className="btn small" disabled={revoke.isPending} onClick={() => revoke.mutate(m.id!)}>
+                      Remove admin
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
+function BannedTab({ room }: { room: RoomDetail }) {
+  const bans = useRoomBans(room.id);
+  const { ban, unban } = useModeration(room.id);
+  const [username, setUsername] = useState('');
+  const [reason, setReason] = useState('');
+  const [formError, setFormError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const items = bans.data ?? [];
+
+  async function onBan(e: FormEvent) {
+    e.preventDefault();
+    const name = username.trim();
+    if (!name) return;
+    setFormError(null);
+    setNotice(null);
+    setBusy(true);
+    try {
+      const profile = await fetchProfile(name);
+      await ban.mutateAsync({ userId: profile.id!, reason });
+      setNotice(`${profile.username} is banned`);
+      setUsername('');
+      setReason('');
+    } catch (err) {
+      setFormError(err instanceof ApiError && err.status === 404 ? 'User not found' : apiErrorToFields(err).form);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div>
+      <form className="ban-form" onSubmit={onBan} noValidate>
+        <h3>Ban user by username</h3>
+        <FormError message={formError} />
+        <FormNotice message={notice} />
+        <Field label="Username" name="ban-username" value={username} maxLength={32}
+          onChange={(e) => setUsername(e.target.value)} />
+        <Field label="Reason (optional)" name="ban-reason" value={reason} maxLength={500}
+          onChange={(e) => setReason(e.target.value)} />
+        <button type="submit" className="btn danger" disabled={!username.trim() || busy}>Ban user</button>
+      </form>
+      <FormError message={unban.error ? apiErrorToFields(unban.error).form : null} />
+      {bans.isPending ? (
+        <p className="muted">Loading…</p>
+      ) : items.length === 0 ? (
+        <p className="muted">Nobody is banned.</p>
+      ) : (
+        <table className="table">
+          <thead>
+            <tr><th>User</th><th>Banned by</th><th>Date</th><th>Reason</th><th /></tr>
+          </thead>
+          <tbody>
+            {items.map((b) => (
+              <tr key={b.user.id ?? b.user.username}>
+                <td>{b.user.username}</td>
+                <td>{b.banned_by.id === null ? <em>{b.banned_by.username}</em> : b.banned_by.username}</td>
+                <td>{new Date(b.banned_at).toLocaleString()}</td>
+                <td>{b.reason ?? <span className="muted">—</span>}</td>
+                <td className="right">
+                  <button className="btn small" disabled={unban.isPending} onClick={() => unban.mutate(b.user.id!)}>
+                    Unban
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
   );
 }
 
@@ -49,6 +278,7 @@ function InvitationsTab({ room }: { room: RoomDetail }) {
   const items = invitations.data ?? [];
   return (
     <div>
+      <InviteForm roomId={room.id} />
       <FormError message={revoke.error ? apiErrorToFields(revoke.error).form : null} />
       {invitations.isPending ? (
         <p className="muted">Loading…</p>

@@ -58,6 +58,13 @@ export interface RoomInvitation {
   created_at: string;
 }
 
+export interface RoomBan {
+  user: UserPublic;
+  banned_by: UserPublic;
+  banned_at: string;
+  reason: string | null;
+}
+
 export interface MyRooms {
   public: RoomSummary[];
   private: RoomSummary[];
@@ -71,6 +78,7 @@ export const roomKeys = {
   detail: (id: number) => ['room', id] as const,
   members: (id: number) => ['room', id, 'members'] as const,
   invitations: (id: number) => ['room', id, 'invitations'] as const,
+  bans: (id: number) => ['room', id, 'bans'] as const,
   myInvitations: ['invitations'] as const,
 };
 
@@ -135,3 +143,20 @@ export const declineInvitation = (id: number): Promise<void> =>
 
 export const searchUsers = async (q: string): Promise<UserPublic[]> =>
   (await apiRequest<{ items: UserPublic[] }>(`/users?${new URLSearchParams({ search: q, limit: '8' })}`)).items;
+
+// --- moderation (API_AND_WS_SPEC §7) ---
+
+export const grantAdmin = (roomId: number, userId: number): Promise<RoomMember> =>
+  apiRequest<RoomMember>(`/rooms/${roomId}/admins/${userId}`, send('POST'));
+
+export const revokeAdmin = (roomId: number, userId: number): Promise<RoomMember> =>
+  apiRequest<RoomMember>(`/rooms/${roomId}/admins/${userId}`, send('DELETE'));
+
+export const fetchBans = async (roomId: number): Promise<RoomBan[]> =>
+  (await apiRequest<{ items: RoomBan[] }>(`/rooms/${roomId}/bans`)).items;
+
+export const banFromRoom = (roomId: number, userId: number, reason?: string): Promise<RoomBan> =>
+  apiRequest<RoomBan>(`/rooms/${roomId}/bans`, send('POST', { user_id: userId, reason: reason?.trim() || null }));
+
+export const unbanFromRoom = (roomId: number, userId: number): Promise<void> =>
+  apiRequest<void>(`/rooms/${roomId}/bans/${userId}`, send('DELETE'));

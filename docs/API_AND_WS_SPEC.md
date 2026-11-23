@@ -12,11 +12,11 @@
 ### 0.2. Коды
 | HTTP | Когда | Примеры `code` |
 |---|---|---|
-| 400 | Невалидный ввод (включая ошибки Pydantic) | `validation_error`, `empty_message`, `empty_file`, `invalid_reply_target`, `invalid_attachment`, `message_deleted`, `username_immutable`, `owner_cannot_leave` |
+| 400 | Невалидный ввод (включая ошибки Pydantic) | `validation_error`, `empty_message`, `empty_file`, `invalid_reply_target`, `invalid_attachment`, `message_deleted`, `username_immutable`, `owner_cannot_leave`, `cannot_ban_self` |
 | 401 | Нет/просрочена/отозвана сессия; неверный логин | `not_authenticated`, `invalid_credentials`, `invalid_current_password` |
 | 403 | Аутентифицирован, но нет прав / запрещено правилом | `forbidden`, `not_room_admin`, `not_room_owner`, `not_message_author`, `cannot_modify_owner`, `room_banned`, `user_banned`, `dm_frozen`, `not_friends`, `origin_mismatch` |
 | 404 | Не существует **или** скрыто (приватная комната для не-участника, чужое вложение) | `not_found`, `room_not_found`, `user_not_found`, `message_not_found`, `attachment_not_found` |
-| 409 | Конфликт состояния/уникальности | `email_taken`, `username_taken`, `room_name_taken`, `already_member`, `already_friends`, `friend_request_exists`, `invitation_exists`, `invitation_not_pending`, `request_not_pending`, `attachment_already_sent`, `already_banned`, `user_is_banned_in_room` |
+| 409 | Конфликт состояния/уникальности | `email_taken`, `username_taken`, `room_name_taken`, `already_member`, `already_friends`, `friend_request_exists`, `invitation_exists`, `invitation_not_pending`, `request_not_pending`, `attachment_already_sent`, `already_banned`, `user_is_banned_in_room`, `already_admin`, `not_admin` |
 | 410 | Токен сброса пароля использован/просрочен | `reset_token_invalid` |
 | 413 | Превышен лимит | `message_too_large` (>3072 байт), `image_too_large` (>3 МБ), `file_too_large` (>20 МБ), `too_many_attachments` (>10) |
 | 429 | Rate limit | `rate_limited` (+ заголовок `Retry-After`) |
@@ -115,16 +115,18 @@ Page<T>      = { items: T[], has_more: boolean, next_cursor: number|null }
 
 ## 7. Moderation (roles, room bans)
 
+Все операции берут блокировку строки комнаты (как join/leave), коммитят и только потом рассылают события. `RoomMember = UserPublic + {role, joined_at}`, `RoomBan = {user: UserPublic, banned_by: UserPublic, banned_at, reason: string|null}` (`banned_by` удалённого пользователя — «Deleted user»).
+
 | Метод и путь | Ответ | Права | Ошибки |
 |---|---|---|---|
-| `POST /api/rooms/{id}/admins/{user_id}` | `200`; `member_role_changed` | owner | `403 not_room_owner`, `404` (не участник), `409` (уже admin) |
-| `DELETE /api/rooms/{id}/admins/{user_id}` | `200`; `member_role_changed` | owner или admin | `403 cannot_modify_owner` (цель — owner), `403 not_room_admin`, `404` |
-| `DELETE /api/rooms/{id}/members/{user_id}` | `204` — **удаление = бан** (эквивалент POST bans) | owner или admin | см. ниже |
-| `POST /api/rooms/{id}/bans` `{user_id, reason?}` | `201`; цели `room_access_revoked{reason:"banned"}`, участникам `member_removed` | owner или admin | `403 cannot_modify_owner`, `403 not_room_admin`, `400` (себя), `409 already_banned`, `404 user_not_found` |
-| `GET /api/rooms/{id}/bans` | `200 {items: [{user: UserPublic, banned_by: UserPublic, banned_at, reason}]}` | owner или admin | `403 not_room_admin` |
-| `DELETE /api/rooms/{id}/bans/{user_id}` | `204` (пользователь **не** возвращается автоматически — может войти в public/быть приглашён в private) | owner или admin | `403`, `404` |
+| `POST /api/rooms/{id}/admins/{user_id}` | `200 RoomMember`; всем участникам `member_role_changed{role:"admin"}` | owner | `403 not_room_owner` (admin, member, не-участник public), `404 not_found` (цель не участник), `409 already_admin` (в т.ч. owner) |
+| `DELETE /api/rooms/{id}/admins/{user_id}` | `200 RoomMember`; всем участникам `member_role_changed{role:"member"}` | owner или admin (admin может снять и себя) | `403 cannot_modify_owner` (цель — owner), `403 not_room_admin`, `404 not_found` (цель не участник), `409 not_admin` |
+| `DELETE /api/rooms/{id}/members/{user_id}` | `204` — **удаление = бан** без причины (эквивалент POST bans) | owner или admin | как у POST bans; `404 not_found`, если цель не участник |
+| `POST /api/rooms/{id}/bans` `{user_id, reason?≤500}` | `201 RoomBan`; если цель была участником — ей `room_access_revoked{reason:"banned"}` (во все вкладки, подписка на комнату снимается сразу), оставшимся участникам `member_removed{reason:"banned"}` | owner или admin | `400 cannot_ban_self`, `403 cannot_modify_owner`, `403 not_room_admin`, `404 user_not_found`, `409 already_banned`, `400 validation_error` |
+| `GET /api/rooms/{id}/bans` | `200 {items: RoomBan[]}`, новые первыми | owner или admin | `403 not_room_admin` |
+| `DELETE /api/rooms/{id}/bans/{user_id}` | `204`, событий нет (пользователь **не** возвращается автоматически — может войти в public/быть приглашён в private) | owner или admin | `403 not_room_admin`, `404 not_found` (не забанен) |
 
-Бан доступен и для не-участника (превентивный бан по `user_id` из профиля). Админ может банить другого админа (кроме owner).
+Бан доступен и для не-участника (превентивный бан по `user_id`; событий нет). Бан в одной транзакции удаляет членство и `chat_read_states`, переводит pending-приглашения в эту комнату в `revoked`; сообщения и файлы пользователя остаются. Админ может банить другого админа (кроме owner). Для private-комнаты не-участник получает `404 room_not_found` на любой эндпоинт модерации.
 
 ## 8. Direct Messages
 

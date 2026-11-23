@@ -4,13 +4,14 @@ import { contactKeys, fetchProfile, openDm } from '../api/contacts';
 import { useMe } from '../auth/session';
 import { FriendRequestForm } from '../pages/ContactsPage';
 import { useState } from 'react';
-import { fetchAllMembers, leaveRoom, roomKeys, type RoomDetail, type RoomMember } from '../api/rooms';
+import { leaveRoom, type RoomDetail, type RoomMember } from '../api/rooms';
 import { apiErrorToFields, FormError } from '../components/forms';
 import type { Presence } from '../api/auth';
 import { UserPresence } from '../components/Presence';
 import { PRESENCE_RANK, usePresenceStore } from '../stores/presence';
 import { InviteUserModal } from '../rooms/InviteUserModal';
-import { ManageRoomModal } from '../rooms/ManageRoomModal';
+import { BanConfirm, ManageRoomModal } from '../rooms/ManageRoomModal';
+import { useModeration, useRoomMembers } from '../rooms/moderation';
 import { useRoomGone } from '../rooms/useRoomGone';
 import { useLayout } from '../stores/layout';
 
@@ -26,9 +27,9 @@ export function sortByPresence(members: RoomMember[], live: Record<number, Prese
   );
 }
 
-/** Popover of a member (FRONTEND_SPEC §4.5): friend request or a link to the DM. Moderation actions
- * arrive with stage 8. */
-function MemberCard({ member, onClose }: { member: RoomMember; onClose: () => void }) {
+/** Popover of a member (FRONTEND_SPEC §4.5): friend request or a link to the DM; for admins and the owner
+ * also Make admin (owner) / Remove admin / Ban from room. The owner is never a moderation target. */
+function MemberCard({ member, room, onClose }: { member: RoomMember; room: RoomDetail; onClose: () => void }) {
   const profile = useQuery({ queryKey: contactKeys.profile(member.username), queryFn: () => fetchProfile(member.username) });
   const navigate = useNavigate();
   const message = useMutation({
@@ -36,6 +37,10 @@ function MemberCard({ member, onClose }: { member: RoomMember; onClose: () => vo
     onSuccess: (dm) => navigate(`/dm/${dm.dm_id}`),
   });
   const rel = profile.data;
+  const { grant, revoke, ban } = useModeration(room.id);
+  const [confirmBan, setConfirmBan] = useState(false);
+  const canModerate = (room.my_role === 'owner' || room.my_role === 'admin') && member.role !== 'owner';
+  const modError = grant.error ?? revoke.error ?? ban.error;
   return (
     <div className="member-card" role="dialog" aria-label={`Actions for ${member.username}`}>
       <div className="member-card-head">
@@ -58,11 +63,40 @@ function MemberCard({ member, onClose }: { member: RoomMember; onClose: () => vo
       ) : (
         <FriendRequestForm initialUsername={member.username} />
       )}
+      {canModerate && (
+        <div className="member-card-mod">
+          <FormError message={modError ? apiErrorToFields(modError).form : null} />
+          <div className="row-actions">
+            {room.my_role === 'owner' && member.role === 'member' && (
+              <button className="btn small" disabled={grant.isPending} onClick={() => grant.mutate(member.id!)}>
+                Make admin
+              </button>
+            )}
+            {member.role === 'admin' && (
+              <button className="btn small" disabled={revoke.isPending} onClick={() => revoke.mutate(member.id!)}>
+                Remove admin
+              </button>
+            )}
+            {!confirmBan && (
+              <button className="btn small danger-outline" onClick={() => setConfirmBan(true)}>Ban from room</button>
+            )}
+          </div>
+          {confirmBan && (
+            <BanConfirm username={member.username} busy={ban.isPending} onCancel={() => setConfirmBan(false)}
+              onConfirm={(reason) => ban.mutate({ userId: member.id!, reason }, { onSuccess: onClose })} />
+          )}
+        </div>
+      )}
     </div>
   );
 }
 
-function MemberList({ title, members, myId }: { title: string; members: RoomMember[]; myId: number | undefined }) {
+function MemberList({ title, members, myId, room }: {
+  title: string;
+  members: RoomMember[];
+  myId: number | undefined;
+  room: RoomDetail;
+}) {
   const live = usePresenceStore((s) => s.byUser);
   const [open, setOpen] = useState<number | null>(null);
   members = sortByPresence(members, live);
@@ -84,7 +118,7 @@ function MemberList({ title, members, myId }: { title: string; members: RoomMemb
               <span className="member-name">{m.username}</span>
             )}
             {m.display_name && <span className="muted member-display"> {m.display_name}</span>}
-            {open === m.id && <MemberCard member={m} onClose={() => setOpen(null)} />}
+            {open === m.id && <MemberCard member={m} room={room} onClose={() => setOpen(null)} />}
           </li>
         ))}
       </ul>
@@ -99,7 +133,7 @@ export function ContextPanel({ room }: { room: RoomDetail }) {
   const setCtxOpen = useLayout((s) => s.setCtxOpen);
   const [dialog, setDialog] = useState<'invite' | 'manage' | null>(null);
   const [filter, setFilter] = useState('');
-  const members = useQuery({ queryKey: roomKeys.members(room.id), queryFn: () => fetchAllMembers(room.id) });
+  const members = useRoomMembers(room.id);
   const leave = useMutation({
     mutationFn: () => leaveRoom(room.id),
     onSuccess: () => roomGone(room.id, `You left #${room.name}`),
@@ -138,9 +172,9 @@ export function ContextPanel({ room }: { room: RoomDetail }) {
           value={filter} onChange={(e) => setFilter(e.target.value)} />
       )}
       {members.isPending && <p className="muted">Loading members…</p>}
-      <MemberList title="Owner" myId={me?.id} members={visible.filter((m) => m.role === 'owner')} />
-      <MemberList title="Admins" myId={me?.id} members={visible.filter((m) => m.role === 'admin')} />
-      <MemberList title="Members" myId={me?.id} members={visible.filter((m) => m.role === 'member')} />
+      <MemberList title="Owner" room={room} myId={me?.id} members={visible.filter((m) => m.role === 'owner')} />
+      <MemberList title="Admins" room={room} myId={me?.id} members={visible.filter((m) => m.role === 'admin')} />
+      <MemberList title="Members" room={room} myId={me?.id} members={visible.filter((m) => m.role === 'member')} />
 
       <div className="ctx-footer">
         <FormError message={leave.error ? apiErrorToFields(leave.error).form : null} />
@@ -156,7 +190,7 @@ export function ContextPanel({ room }: { room: RoomDetail }) {
       {dialog === 'invite' && (
         <InviteUserModal roomId={room.id} roomName={room.name} onClose={() => setDialog(null)} />
       )}
-      {dialog === 'manage' && <ManageRoomModal room={room} onClose={() => setDialog(null)} />}
+      {dialog === 'manage' && isAdmin && <ManageRoomModal room={room} onClose={() => setDialog(null)} />}
     </aside>
   );
 }

@@ -167,6 +167,22 @@ class InviteRequest(StrictModel):
     username: str = Field(min_length=1, max_length=32)
 
 
+class BanRequest(StrictModel):
+    user_id: int = Field(ge=1)
+    reason: Annotated[str, StringConstraints(strip_whitespace=True, max_length=500)] | None = None
+
+
+class RoomBanOut(BaseModel):
+    user: UserPublic
+    banned_by: UserPublic
+    banned_at: datetime
+    reason: str | None
+
+
+class RoomBans(BaseModel):
+    items: list[RoomBanOut]
+
+
 class RoomBrief(BaseModel):
     id: int
     name: str

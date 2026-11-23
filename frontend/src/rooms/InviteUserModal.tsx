@@ -14,6 +14,15 @@ function useDebounced<T>(value: T, ms: number): T {
 }
 
 export function InviteUserModal({ roomId, roomName, onClose }: { roomId: number; roomName: string; onClose: () => void }) {
+  return (
+    <Modal title={`Invite to #${roomName}`} onClose={onClose}>
+      <InviteForm roomId={roomId} onCancel={onClose} autoFocus />
+    </Modal>
+  );
+}
+
+/** Username with suggestions → invitation (the Invite modal and Manage room → Invitations). */
+export function InviteForm({ roomId, onCancel, autoFocus }: { roomId: number; onCancel?: () => void; autoFocus?: boolean }) {
   const qc = useQueryClient();
   const [username, setUsername] = useState('');
   const [notice, setNotice] = useState<string | null>(null);
@@ -44,34 +53,32 @@ export function InviteUserModal({ roomId, roomName, onClose }: { roomId: number;
   const options = (suggestions.data ?? []).filter((u) => u.username.toLowerCase() !== username.trim().toLowerCase());
 
   return (
-    <Modal title={`Invite to #${roomName}`} onClose={onClose}>
-      <form onSubmit={onSubmit} noValidate>
-        <FormError message={invite.error ? apiErrorToFields(invite.error).form : null} />
-        <FormNotice message={notice} />
-        <div className="field">
-          <label htmlFor="f-invite-username">Username</label>
-          <input id="f-invite-username" autoFocus autoComplete="off" value={username} maxLength={32}
-            onChange={(e) => setUsername(e.target.value)} />
-        </div>
-        {query.length >= 2 && options.length > 0 && (
-          <ul className="suggestions" aria-label="Matching users">
-            {options.map((u) => (
-              <li key={u.id ?? u.username}>
-                <button type="button" className="btn ghost small" onClick={() => setUsername(u.username)}>
-                  {u.username}
-                  {u.display_name && <span className="muted"> · {u.display_name}</span>}
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-        <div className="modal-actions">
-          <button type="button" className="btn" onClick={onClose}>Close</button>
-          <button type="submit" className="btn primary" disabled={!username.trim() || invite.isPending}>
-            Send invitation
-          </button>
-        </div>
-      </form>
-    </Modal>
+    <form onSubmit={onSubmit} noValidate>
+      <FormError message={invite.error ? apiErrorToFields(invite.error).form : null} />
+      <FormNotice message={notice} />
+      <div className="field">
+        <label htmlFor="f-invite-username">Username</label>
+        <input id="f-invite-username" autoFocus={autoFocus} autoComplete="off" value={username} maxLength={32}
+          onChange={(e) => setUsername(e.target.value)} />
+      </div>
+      {query.length >= 2 && options.length > 0 && (
+        <ul className="suggestions" aria-label="Matching users">
+          {options.map((u) => (
+            <li key={u.id ?? u.username}>
+              <button type="button" className="btn ghost small" onClick={() => setUsername(u.username)}>
+                {u.username}
+                {u.display_name && <span className="muted"> · {u.display_name}</span>}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="modal-actions">
+        {onCancel && <button type="button" className="btn" onClick={onCancel}>Close</button>}
+        <button type="submit" className="btn primary" disabled={!username.trim() || invite.isPending}>
+          Send invitation
+        </button>
+      </div>
+    </form>
   );
 }

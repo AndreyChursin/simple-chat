@@ -100,6 +100,7 @@ export function SocketBridge() {
                 ? `Room ${label} was deleted`
                 : null;
           roomGone(roomId, text);
+          void qc.invalidateQueries({ queryKey: roomKeys.myInvitations });
           break;
         }
         case 'room_joined':
@@ -116,6 +117,10 @@ export function SocketBridge() {
           const roomId = Number(e.room_id);
           void qc.invalidateQueries({ queryKey: roomKeys.members(roomId) });
           void qc.invalidateQueries({ queryKey: roomKeys.detail(roomId) });
+          if (e.type === 'member_removed' && e.reason === 'banned') {
+            void qc.invalidateQueries({ queryKey: roomKeys.bans(roomId) });
+          }
+          if (e.type === 'member_role_changed') void qc.invalidateQueries({ queryKey: roomKeys.mine });
           break;
         }
         case 'friend_request_received': {
