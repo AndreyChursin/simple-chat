@@ -1,0 +1,32 @@
+[project]
+name = "chat-backend"
+version = "0.1.0"
+requires-python = ">=3.12"
+# Dependencies are pinned in requirements.txt / requirements-dev.txt (installed by the Dockerfile).
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "ASYNC", "SIM"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["pydantic.mypy"]
+exclude = ["alembic/"]
+
+[[tool.mypy.overrides]]
+module = ["user_agents.*"]
+ignore_missing_imports = true
+
+[tool.ruff.lint.isort]
+# The local ./alembic directory holds migrations; the import name refers to the installed library.
+known-third-party = ["alembic"]
