@@ -10,12 +10,13 @@ import {
   type ChatRef,
   type Message,
 } from '../api/messages';
+import type { Attachment } from '../api/attachments';
 import { ApiError } from '../api/client';
 import { Modal } from '../components/Modal';
 import { toast } from '../stores/toasts';
 import { socket } from '../ws/socket';
 import { AT_BOTTOM_THRESHOLD_PX, countNewAtTail, newAtTail, shouldFollow } from './autoscroll';
-import { Composer } from './Composer';
+import { Composer, type ComposerHandle } from './Composer';
 import { timeOf } from './format';
 import { MessageItem } from './MessageItem';
 import { emptyChat, useMessages, type ChatMessage } from './messagesStore';
@@ -58,6 +59,8 @@ export function ChatWindow({ chat, me, canModerate, readOnly = false, frozenText
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
   const [editing, setEditing] = useState<ChatMessage | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<ChatMessage | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const composer = useRef<ComposerHandle>(null);
   const tailRef = useRef(0);
   const messages = state.messages;
 
@@ -183,6 +186,7 @@ export function ChatWindow({ chat, me, canModerate, readOnly = false, frozenText
           client_msg_id: clientMsgId,
           content: pending.content,
           reply_to_message_id: pending.reply_to_message_id ?? null,
+          attachment_ids: pending.attachments.map((a) => a.id),
         })
         .then((ack) => store().upsert(key, ack.message as Message))
         .catch((err: { code: string; message: string }) =>
@@ -193,7 +197,7 @@ export function ChatWindow({ chat, me, canModerate, readOnly = false, frozenText
   );
 
   const send = useCallback(
-    (text: string) => {
+    (text: string, attachments: Attachment[]) => {
       const pending: ChatMessage = {
         id: --tempIds,
         chat,
@@ -204,7 +208,7 @@ export function ChatWindow({ chat, me, canModerate, readOnly = false, frozenText
         deleted: false,
         reply_to: replyTo ? { id: replyTo.id, author: replyTo.author, excerpt: replyTo.content.slice(0, 200), deleted: false } : null,
         reply_to_message_id: replyTo?.id ?? null,
-        attachments: [],
+        attachments,
         client_msg_id: crypto.randomUUID(),
         pending: 'sending',
       };
@@ -280,7 +284,24 @@ export function ChatWindow({ chat, me, canModerate, readOnly = false, frozenText
   );
 
   return (
-    <div className="chat-body">
+    <div
+      className={`chat-body${dragging ? ' dragging' : ''}`}
+      onDragOver={(e) => {
+        if (readOnly || !e.dataTransfer.types.includes('Files')) return;
+        e.preventDefault();
+        setDragging(true);
+      }}
+      onDragLeave={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(false);
+      }}
+      onDrop={(e) => {
+        if (readOnly || !e.dataTransfer.files.length) return;
+        e.preventDefault();
+        setDragging(false);
+        composer.current?.addFiles(Array.from(e.dataTransfer.files));
+      }}
+    >
+      {dragging && <div className="drop-hint">Drop files to attach</div>}
       {searchOpen && <SearchPanel chat={chat} onClose={onCloseSearch} onPick={(id) => void jumpTo(id)} />}
       <div className="feed" data-at-bottom={atBottom} data-unseen={unseen}>
         {loadError ? (
@@ -337,6 +358,9 @@ export function ChatWindow({ chat, me, canModerate, readOnly = false, frozenText
         </div>
       ) : (
         <Composer
+          key={key}
+          ref={composer}
+          chat={chat}
           replyTo={replyTo}
           editing={editing}
           onSend={send}

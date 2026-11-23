@@ -2,11 +2,11 @@
 
 import uuid
 from datetime import datetime
-from typing import Annotated, Any, Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, StringConstraints
 
-from app.db.models import Message, Room, RoomInvitation, RoomVisibility, User
+from app.db.models import Attachment, Message, Room, RoomInvitation, RoomVisibility, User
 from app.services.access import RoomRole
 from app.services.presence import Presence, get_presence
 
@@ -247,6 +247,36 @@ class ReplyRef(BaseModel):
     deleted: bool
 
 
+class AttachmentOut(BaseModel):
+    id: int
+    original_filename: str
+    mime_type: str
+    size_bytes: int
+    is_image: bool
+    width: int | None
+    height: int | None
+    comment: str | None
+    download_url: str
+
+    @classmethod
+    def of(cls, a: Attachment) -> "AttachmentOut":
+        return cls(
+            id=a.id,
+            original_filename=a.original_filename,
+            mime_type=a.mime_type,
+            size_bytes=a.size_bytes,
+            is_image=a.is_image,
+            width=a.width,
+            height=a.height,
+            comment=a.comment,
+            download_url=f"/api/attachments/{a.id}/download",
+        )
+
+
+class AttachmentCommentRequest(StrictModel):
+    comment: str | None = Field(None, max_length=1000)
+
+
 class MessageOut(BaseModel):
     id: int
     chat: ChatRefOut
@@ -256,7 +286,7 @@ class MessageOut(BaseModel):
     edited_at: datetime | None
     deleted: bool
     reply_to: ReplyRef | None
-    attachments: list[dict[str, Any]]  # Attachment objects arrive with stage 7
+    attachments: list[AttachmentOut]
     client_msg_id: str | None
 
     @classmethod
@@ -284,7 +314,7 @@ class MessageOut(BaseModel):
             edited_at=m.edited_at,
             deleted=m.deleted_at is not None,
             reply_to=reply,
-            attachments=[],
+            attachments=[] if m.deleted_at else [AttachmentOut.of(a) for a in m.attachments],
             client_msg_id=str(m.client_msg_id) if m.client_msg_id else None,
         )
 
@@ -306,6 +336,8 @@ class SendMessageRequest(StrictModel):
     content: str = ""
     reply_to_message_id: int | None = None
     client_msg_id: uuid.UUID | None = None
+    # The 10-per-message limit answers 413 too_many_attachments (services/messages.py).
+    attachment_ids: list[int] = Field(default_factory=list, max_length=100)
 
 
 class EditMessageRequest(StrictModel):

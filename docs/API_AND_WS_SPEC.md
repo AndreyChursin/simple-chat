@@ -12,11 +12,11 @@
 ### 0.2. Коды
 | HTTP | Когда | Примеры `code` |
 |---|---|---|
-| 400 | Невалидный ввод (включая ошибки Pydantic) | `validation_error`, `empty_message`, `invalid_reply_target`, `message_deleted`, `username_immutable`, `owner_cannot_leave` |
+| 400 | Невалидный ввод (включая ошибки Pydantic) | `validation_error`, `empty_message`, `empty_file`, `invalid_reply_target`, `invalid_attachment`, `message_deleted`, `username_immutable`, `owner_cannot_leave` |
 | 401 | Нет/просрочена/отозвана сессия; неверный логин | `not_authenticated`, `invalid_credentials`, `invalid_current_password` |
 | 403 | Аутентифицирован, но нет прав / запрещено правилом | `forbidden`, `not_room_admin`, `not_room_owner`, `not_message_author`, `cannot_modify_owner`, `room_banned`, `user_banned`, `dm_frozen`, `not_friends`, `origin_mismatch` |
 | 404 | Не существует **или** скрыто (приватная комната для не-участника, чужое вложение) | `not_found`, `room_not_found`, `user_not_found`, `message_not_found`, `attachment_not_found` |
-| 409 | Конфликт состояния/уникальности | `email_taken`, `username_taken`, `room_name_taken`, `already_member`, `already_friends`, `friend_request_exists`, `invitation_exists`, `invitation_not_pending`, `request_not_pending`, `already_banned`, `user_is_banned_in_room` |
+| 409 | Конфликт состояния/уникальности | `email_taken`, `username_taken`, `room_name_taken`, `already_member`, `already_friends`, `friend_request_exists`, `invitation_exists`, `invitation_not_pending`, `request_not_pending`, `attachment_already_sent`, `already_banned`, `user_is_banned_in_room` |
 | 410 | Токен сброса пароля использован/просрочен | `reset_token_invalid` |
 | 413 | Превышен лимит | `message_too_large` (>3072 байт), `image_too_large` (>3 МБ), `file_too_large` (>20 МБ), `too_many_attachments` (>10) |
 | 429 | Rate limit | `rate_limited` (+ заголовок `Retry-After`) |
@@ -150,7 +150,7 @@ Page<T>      = { items: T[], has_more: boolean, next_cursor: number|null }
 | `GET /api/me/unread` (этап 9) | — | `200 {items: [{chat: ChatRef, unread: number, last_message_id}]}` (`unread` ≤ 100) | — |
 | `POST /api/{chat}/read` (этап 9) | `{last_read_message_id}` | `204`; всем вкладкам пользователя `unread_update` | `404` |
 
-`attachment_ids` принимается с этапа 7 (до него — `400 validation_error`). `around` возвращает окно `limit` (2–100) с центром на сообщении: `limit/2` до него и остальное начиная с него. Отправка ограничена 5/с на пользователя (WS и REST вместе). Повтор `client_msg_id` того же автора возвращает уже созданное сообщение (`201`, без повторной рассылки) и не расходует лимит.
+`attachment_ids` — свои pending-вложения этого же чата (иначе `400 invalid_attachment`), не больше 10 (`413 too_many_attachments`); с вложениями текст может быть пустым, и правка может оставить сообщение без текста. Удаление сообщения удаляет его вложения (строки и файлы). `around` возвращает окно `limit` (2–100) с центром на сообщении: `limit/2` до него и остальное начиная с него. Отправка ограничена 5/с на пользователя (WS и REST вместе). Повтор `client_msg_id` того же автора возвращает уже созданное сообщение (`201`, без повторной рассылки) и не расходует лимит.
 
 Длина `content` проверяется в байтах UTF-8 после нормализации переносов строк `\r\n → \n`; ведущие/хвостовые пробелы сохраняются, но строка из одних пробелов считается пустой.
 
@@ -158,9 +158,9 @@ Page<T>      = { items: T[], has_more: boolean, next_cursor: number|null }
 
 | Метод и путь | Тело | Ответ | Ошибки |
 |---|---|---|---|
-| `POST /api/{chat}/attachments` | multipart: `file` (обязательно), `comment?` (≤ 1000) | `201 Attachment` (pending) | `413 file_too_large` (>20 971 520 байт), `413 image_too_large` (изображение >3 145 728 байт), `400` (пустой файл/нет имени), `403 dm_frozen`, `403`/`404` по доступу |
-| `PATCH /api/attachments/{id}` | `{comment}` | `200 Attachment` | `403` (не загрузивший), `404` |
-| `DELETE /api/attachments/{id}` | — | `204` (только pending, только загрузивший) | `409` (уже привязано — удалять через сообщение), `404` |
+| `POST /api/{chat}/attachments` | multipart: `file` (обязательно), `comment?` (≤ 1000) | `201 Attachment` (pending) | `413 file_too_large` (>20 971 520 байт), `413 image_too_large` (сигнатура изображения и >3 145 728 байт), `400 empty_file`, `400 validation_error` (не multipart, нет части `file`, нет имени, длинный comment), `403 dm_frozen`, `403`/`404` по доступу |
+| `PATCH /api/attachments/{id}` | `{comment}` (≤ 1000, `""`/`null` — сброс) | `200 Attachment` — только пока pending | `403` (не загрузивший), `404`, `409 attachment_already_sent` |
+| `DELETE /api/attachments/{id}` | — | `204` (только pending, только загрузивший; файл удаляется с диска) | `409 attachment_already_sent` (удалять через сообщение), `403`, `404` |
 | `GET /api/attachments/{id}/download?inline=0|1` | — | `200` поток файла (заголовки — ARCHITECTURE.md §5.3); поддержка `Range` | `404` (нет / нет доступа *сейчас* / потерян доступ к комнате), `401` |
 
 Имя файла при вставке из буфера (`Ctrl+V`) без имени: клиент задаёт `pasted-image-YYYYMMDD-HHMMSS.png`.

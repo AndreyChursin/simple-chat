@@ -83,6 +83,7 @@ async def _send_message(conn: Connection, event: SendMessage) -> None:
             content=event.content,
             reply_to_message_id=event.reply_to_message_id,
             client_msg_id=event.client_msg_id,
+            attachment_ids=event.attachment_ids,
         )
         manager.send_to_connection(
             conn, {"type": "ack", "req_id": event.req_id, "message": message_service.serialize(message)}

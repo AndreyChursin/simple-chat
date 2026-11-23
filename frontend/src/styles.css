@@ -398,3 +398,44 @@ code { font-size: 0.9em; }
 .frozen-note { color: var(--muted); background: var(--surface); padding: 8px 10px; border-radius: 6px; }
 .btn.danger-outline { color: var(--danger); border-color: var(--danger); }
 .narrow-card { max-width: 520px; }
+
+/* ---- attachments ---------------------------------------------------------------------------- */
+.chips { list-style: none; margin: 0 0 6px; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.chip {
+  display: flex; align-items: center; gap: 8px; padding: 6px 4px 6px 6px; border: 1px solid var(--border);
+  border-radius: 8px; background: var(--surface); width: 260px;
+}
+.chip.error { border-color: var(--danger); }
+.chip-thumb { width: 40px; height: 40px; object-fit: cover; border-radius: 4px; flex-shrink: 0; }
+.chip-icon { width: 40px; text-align: center; font-size: 1.4em; flex-shrink: 0; }
+.chip-main { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.chip-name { font-size: 0.88em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chip-meta { font-size: 0.78em; color: var(--muted); }
+.chip-error { color: var(--danger); }
+.chip-progress { width: 100%; height: 4px; }
+.chip-comment {
+  font: inherit; font-size: 0.82em; padding: 2px 6px; border: 1px solid var(--border); border-radius: 4px;
+  background: var(--bg); color: var(--fg); width: 100%;
+}
+.chat-body.dragging .feed { outline: 2px dashed var(--accent); outline-offset: -6px; }
+.drop-hint {
+  position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 6; pointer-events: none;
+  background: var(--accent); color: #fff; padding: 6px 14px; border-radius: 999px;
+}
+.msg-attachments { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; align-items: flex-start; }
+.att-image { margin: 0; }
+.att-image-button { padding: 0; border: 0; background: none; cursor: zoom-in; display: block; }
+.att-image img {
+  display: block; max-height: 320px; max-width: min(480px, 100%); height: auto; border-radius: 6px;
+  border: 1px solid var(--border); background: var(--surface); object-fit: contain;
+}
+.att-image figcaption, .att-comment { font-size: 0.85em; color: var(--muted); margin-top: 2px; }
+.att-file {
+  display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--border);
+  border-radius: 8px; background: var(--surface); max-width: 420px;
+}
+.att-file-icon { font-size: 1.5em; }
+.att-file-main { min-width: 0; display: flex; flex-direction: column; }
+.att-file-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lightbox { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.lightbox img { max-width: 100%; max-height: 70vh; object-fit: contain; }

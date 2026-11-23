@@ -6,6 +6,7 @@ module-level singletons.
 
 import asyncio
 import os
+import shutil
 import tempfile
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
 from pathlib import Path
@@ -60,12 +61,21 @@ def _migrated_database() -> Iterator[None]:
     yield
 
 
+def _reset_upload_dir() -> None:
+    """Every test starts with the empty layout the app creates at startup."""
+    base = Path(os.environ["UPLOAD_DIR"])
+    for sub in ("rooms", "dms", "tmp"):
+        shutil.rmtree(base / sub, ignore_errors=True)
+        (base / sub).mkdir(parents=True)
+
+
 @pytest.fixture(autouse=True)
 async def _clean_state() -> AsyncIterator[None]:
     rate_limiter.reset()
     mail.outbox.clear()
     manager.reset()
     ws_handlers._typing_sent.clear()
+    _reset_upload_dir()
     yield
     async with engine.begin() as conn:
         tables = (

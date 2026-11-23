@@ -1,4 +1,5 @@
 /** Messages (docs/API_AND_WS_SPEC.md §0.3, §9). */
+import type { Attachment } from './attachments';
 import type { UserPublic } from './auth';
 import { apiRequest } from './client';
 import type { Page } from './rooms';
@@ -26,7 +27,7 @@ export interface Message {
   edited_at: string | null;
   deleted: boolean;
   reply_to: ReplyRef | null;
-  attachments: unknown[];
+  attachments: Attachment[];
   client_msg_id: string | null;
 }
 

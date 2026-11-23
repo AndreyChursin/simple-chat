@@ -149,7 +149,7 @@ async def test_send_validation(make_client: ClientFactory) -> None:
     room = await create_room(alice, "general")
     for body in (
         {"content": "x", "client_msg_id": "nope"},
-        {"content": "x", "attachment_ids": [1]},
+        {"content": "x", "attachment_ids": ["a"]},
         {"content": 5},
     ):
         resp = await alice.post(f"/api/rooms/{room['id']}/messages", json=body)

@@ -73,7 +73,7 @@ describe('composer', () => {
     const onCancel = vi.fn();
     const onEditLast = vi.fn();
     render(
-      <Composer replyTo={null} editing={null} onSend={onSend} onSaveEdit={noop} onCancel={onCancel}
+      <Composer chat={{ type: 'room', id: 1 }} replyTo={null} editing={null} onSend={onSend} onSaveEdit={noop} onCancel={onCancel}
         onEditLast={onEditLast} onTyping={noop} {...props} />,
     );
     return { onSend, onCancel, onEditLast, input: screen.getByLabelText('Message') as HTMLTextAreaElement };
@@ -103,7 +103,7 @@ describe('composer', () => {
     expect(onSend).not.toHaveBeenCalled();
     fireEvent.change(input, { target: { value: 'line 1\nline 2' } });
     fireEvent.keyDown(input, { key: 'Enter' });
-    expect(onSend).toHaveBeenCalledWith('line 1\nline 2');
+    expect(onSend).toHaveBeenCalledWith('line 1\nline 2', []);
     expect(input.value).toBe('');
     fireEvent.keyDown(input, { key: 'Enter' }); // empty: nothing
     expect(onSend).toHaveBeenCalledTimes(1);

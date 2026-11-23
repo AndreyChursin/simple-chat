@@ -1,4 +1,5 @@
 import { memo } from 'react';
+import { MessageAttachments } from './Attachments';
 import type { ChatMessage } from './messagesStore';
 import { dayLabel, initials, isGrouped, linkify, sameDay, timeOf } from './format';
 
@@ -58,10 +59,13 @@ function MessageItemImpl({ message: m, prev, myId, canModerate, readOnly, highli
             <span>{m.reply_to.deleted ? <em>Original message deleted</em> : m.reply_to.excerpt}</span>
           </button>
         )}
-        <div className="msg-body">
-          {m.deleted ? <em className="muted">Message deleted</em> : linkify(m.content)}
-          {m.edited_at && !m.deleted && <span className="edited" title={new Date(m.edited_at).toLocaleString()}> edited</span>}
-        </div>
+        {(m.deleted || m.content || m.edited_at) && (
+          <div className="msg-body">
+            {m.deleted ? <em className="muted">Message deleted</em> : linkify(m.content)}
+            {m.edited_at && !m.deleted && <span className="edited" title={new Date(m.edited_at).toLocaleString()}> edited</span>}
+          </div>
+        )}
+        {!m.deleted && <MessageAttachments attachments={m.attachments} />}
         {m.pending === 'failed' && (
           <div className="msg-failed" role="alert">
             {m.error ?? 'Not sent'}{' '}

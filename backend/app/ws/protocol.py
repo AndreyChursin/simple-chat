@@ -35,6 +35,7 @@ class SendMessage(_Event):
     client_msg_id: uuid.UUID | None = None
     content: str = ""
     reply_to_message_id: int | None = None
+    attachment_ids: list[int] = Field(default_factory=list, max_length=100)
 
 
 ClientEvent = Annotated[Heartbeat | Activity | Typing | SendMessage, Field(discriminator="type")]

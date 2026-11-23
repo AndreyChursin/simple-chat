@@ -83,6 +83,7 @@ async def send_message(
         content=body.content,
         reply_to_message_id=body.reply_to_message_id,
         client_msg_id=body.client_msg_id,
+        attachment_ids=body.attachment_ids,
     )
     return MessageOut.of(message)
 

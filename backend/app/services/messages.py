@@ -8,16 +8,16 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import Select, select
+from sqlalchemy import Select, delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, selectinload
 
 from app.api.schemas import MessageOut
 from app.core.errors import AppError
 from app.core.ratelimit import rate_limiter
-from app.db.models import MESSAGE_MAX_BYTES, Message, User
-from app.services import access
+from app.db.models import MESSAGE_MAX_BYTES, Attachment, Message, User
+from app.services import access, files
 from app.services.access import ChatAccess, ChatRef
 from app.ws.manager import manager
 
@@ -28,7 +28,9 @@ SEARCH_MIN_CHARS = 2
 MESSAGE_LOAD = (
     joinedload(Message.author),
     joinedload(Message.reply_to).joinedload(Message.author),
+    selectinload(Message.attachments),  # one extra SELECT per page, not per message
 )
+MAX_ATTACHMENTS = 10
 
 
 def utcnow() -> datetime:
@@ -56,9 +58,8 @@ def normalize_content(content: str) -> str:
     return content
 
 
-def _require_text(content: str) -> None:
-    # Attachments (stage 7) will make a text-less message valid.
-    if not content.strip():
+def _require_content(content: str, has_attachments: bool) -> None:
+    if not content.strip() and not has_attachments:
         raise AppError(400, "empty_message", "Message is empty")
 
 
@@ -106,6 +107,7 @@ async def send_message(
     content: str,
     reply_to_message_id: int | None = None,
     client_msg_id: uuid.UUID | None = None,
+    attachment_ids: list[int] | None = None,
 ) -> tuple[Message, bool]:
     """Returns (message, created). A repeated `client_msg_id` of the same author returns the existing
     message without publishing it again (idempotent resend after a reconnect)."""
@@ -116,7 +118,16 @@ async def send_message(
             return existing, False
     rate_limiter.hit(f"send:{author.id}", *SEND_RATE_LIMIT)
     content = normalize_content(content)
-    _require_text(content)
+    ids = list(dict.fromkeys(attachment_ids or []))
+    if len(ids) > MAX_ATTACHMENTS:
+        raise AppError(
+            413,
+            "too_many_attachments",
+            f"At most {MAX_ATTACHMENTS} attachments per message",
+            {"max": MAX_ATTACHMENTS},
+        )
+    _require_content(content, bool(ids))
+    attachments = await _pending_attachments(db, author.id, chat, ids)
     if reply_to_message_id is not None:
         target = await db.scalar(select(Message.id).where(Message.id == reply_to_message_id, _in_chat(chat)))
         if target is None:
@@ -133,6 +144,9 @@ async def send_message(
     )
     db.add(message)
     try:
+        await db.flush()
+        for attachment in attachments:
+            attachment.message_id = message.id
         await db.commit()
     except IntegrityError as exc:  # concurrent resend with the same client_msg_id
         await db.rollback()
@@ -144,6 +158,28 @@ async def send_message(
     message = await _reload(db, message.id)
     await manager.publish(chat.key, {"type": "new_message", "message": serialize(message)})
     return message, True
+
+
+async def _pending_attachments(
+    db: AsyncSession, author_id: int, chat: ChatRef, ids: list[int]
+) -> list[Attachment]:
+    """The author's own pending uploads to this very chat; locked so two sends cannot both take one."""
+    if not ids:
+        return []
+    rows = list(
+        await db.scalars(
+            select(Attachment).where(Attachment.id.in_(ids)).with_for_update().order_by(Attachment.id)
+        )
+    )
+
+    def in_chat(a: Attachment) -> bool:
+        return (a.room_id if chat.type == "room" else a.dm_id) == chat.id
+
+    if len(rows) != len(ids) or any(
+        a.uploader_id != author_id or a.message_id is not None or not in_chat(a) for a in rows
+    ):
+        raise AppError(400, "invalid_attachment", "Attachments must be your own unsent uploads to this chat")
+    return rows
 
 
 async def _existing_by_client_id(
@@ -260,7 +296,7 @@ async def edit_message(db: AsyncSession, *, user: User, message_id: int, content
     if message.author_id != user.id:
         raise AppError(403, "not_message_author", "Only the author can edit a message")
     content = normalize_content(content)
-    _require_text(content)
+    _require_content(content, bool(message.attachments))
     if content == message.content:
         return message
     message.content = content
@@ -282,7 +318,14 @@ async def delete_message(db: AsyncSession, *, user: User, message_id: int) -> No
     message.content = ""
     message.deleted_at = utcnow()
     message.deleted_by_id = user.id
+    # Its files go too: rows now, the files on disk after the commit.
+    stored = list(
+        await db.scalars(
+            delete(Attachment).where(Attachment.message_id == message.id).returning(Attachment.stored_path)
+        )
+    )
     await db.commit()
+    await files.remove_files(stored)
     await manager.publish(
         acc.chat.key,
         {

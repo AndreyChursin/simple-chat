@@ -237,10 +237,10 @@ client A ──send_message(WS) или POST /messages──▶ services.messages
 
 `attachments.stored_path` хранит относительный путь (`rooms/12/2026/11/3f2a...`). Абсолютный путь строится как `UPLOAD_DIR / stored_path` с проверкой `resolve().is_relative_to(UPLOAD_DIR)`.
 
-### 5.2. Загрузка (`POST /api/chats/{chat_type}/{chat_id}/attachments`, multipart)
+### 5.2. Загрузка (`POST /api/rooms/{id}/attachments` | `POST /api/dms/{id}/attachments`, multipart)
 1. `access.require_chat_writable` (участник комнаты / DM не заморожен).
-2. Поток тела пишется в `tmp/{uuid}.part` чанками по 64 КБ со счётчиком; > 20 МБ → прервать, удалить `.part`, `413 file_too_large`.
-3. Определить тип по первым байтам; если это изображение (PNG/JPEG/GIF/WEBP и `Pillow.Image.verify()` прошёл) → `is_image=true`, размер > 3 МБ → `413 image_too_large`.
+2. Тело разбирается потоково (`python_multipart.MultipartParser` поверх `request.stream()`, `app/services/uploads.py`): часть `file` пишется в `tmp/{uuid}.part` по мере прихода, счётчик проверяется после каждого чанка; > 20 МБ → прервать, удалить `.part`, `413 file_too_large`. `Content-Length` не учитывается, кроме досрочного отказа, если он сам по себе больше лимита. Если первые байты — сигнатура изображения, лимит сразу 3 МБ (`413 image_too_large` без дочитывания). Тела > `client_max_body_size` отклоняет nginx — тоже JSON в едином формате ошибки.
+3. Тип — по содержимому: сигнатура PNG/JPEG/GIF/WEBP **и** `Pillow.verify()` с совпадающим форматом → `is_image=true`, `mime_type` и `width/height` из файла. Иначе — обычный файл; `mime_type` — заявленный клиентом, если он синтаксически валиден, иначе `application/octet-stream` (отдаётся всё равно как `application/octet-stream`). Имя файла санитизируется (без путей и управляющих символов, ≤ 255; `%22`/`%0D`/`%0A` из multipart-кодировки браузеров декодируются) и на диск не попадает.
 4. `os.replace` в целевой путь, INSERT `attachments` с `message_id = NULL` (pending), вернуть метаданные.
 5. Вложение привязывается к сообщению при `send_message` (`attachment_ids`, ≤ 10 на сообщение). Pending-вложения старше 24 ч удаляет GC.
 

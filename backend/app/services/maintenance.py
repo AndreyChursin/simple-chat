@@ -8,6 +8,7 @@ from sqlalchemy import delete, or_
 
 from app.db.models import PasswordResetToken, UserSession
 from app.db.session import SessionLocal
+from app.services import files
 from app.services.auth import utcnow
 
 logger = logging.getLogger(__name__)
@@ -30,10 +31,19 @@ async def purge_expired() -> None:
         await db.commit()
 
 
+async def collect_file_garbage() -> None:
+    async with SessionLocal() as db:
+        counts = await files.collect_garbage(db)
+    if any(counts.values()):
+        logger.info("File GC: %s", counts)
+
+
 async def run_forever() -> None:
+    """Hourly, and once at start (docs/ARCHITECTURE.md §5.4)."""
     while True:
-        try:
-            await purge_expired()
-        except Exception:
-            logger.exception("Housekeeping failed")
+        for job in (purge_expired, collect_file_garbage):
+            try:
+                await job()
+            except Exception:
+                logger.exception("Housekeeping job %s failed", job.__name__)
         await asyncio.sleep(INTERVAL_SECONDS)

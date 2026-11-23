@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import AppError
 from app.db.models import (
+    Attachment,
     DirectConversation,
     Friendship,
     FriendshipStatus,
@@ -238,3 +239,19 @@ async def require_chat_writable(db: AsyncSession, chat: ChatRef, user_id: int) -
     if acc.frozen_reason is not None:
         raise AppError(403, "dm_frozen", "This conversation is read-only", {"reason": acc.frozen_reason})
     return acc
+
+
+async def require_attachment_readable(db: AsyncSession, attachment: Attachment, user_id: int) -> None:
+    """Checked on every download, against the state *now*: a pending file only for its uploader; a sent
+    one for current room members / either side of the DM (frozen DMs stay readable). 404 otherwise,
+    so that existence is not revealed."""
+    not_found = AppError(404, "attachment_not_found", "Attachment not found")
+    if attachment.message_id is None and attachment.uploader_id != user_id:
+        raise not_found
+    if attachment.room_id is not None:
+        if not await is_room_member(db, attachment.room_id, user_id):
+            raise not_found
+        return
+    dm = await db.get(DirectConversation, attachment.dm_id)
+    if dm is None or not dm.has_side(user_id):
+        raise not_found

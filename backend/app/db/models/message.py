@@ -5,6 +5,7 @@ from sqlalchemy import BigInteger, CheckConstraint, DateTime, ForeignKey, Index,
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
+from app.db.models.attachment import Attachment
 from app.db.models.user import User
 
 MESSAGE_MAX_BYTES = 3072
@@ -58,3 +59,6 @@ class Message(Base):
     author: Mapped[User | None] = relationship(foreign_keys=[author_id], lazy="raise")
     deleted_by: Mapped[User | None] = relationship(foreign_keys=[deleted_by_id], lazy="raise")
     reply_to: Mapped["Message | None"] = relationship(remote_side=[id], lazy="raise")
+    attachments: Mapped[list[Attachment]] = relationship(
+        lazy="raise", order_by=Attachment.id, passive_deletes=True
+    )

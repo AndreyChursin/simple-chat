@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from app.api import auth, contacts, health, invitations, messages, rooms, sessions, users
+from app.api import attachments, auth, contacts, health, invitations, messages, rooms, sessions, users
 from app.core.config import get_settings
 from app.core.errors import register_error_handlers
 from app.core.security import origin_check_middleware
@@ -52,7 +52,7 @@ def create_app() -> FastAPI:
     )
     register_error_handlers(app)
     app.middleware("http")(origin_check_middleware)
-    for module in (health, auth, sessions, users, rooms, invitations, messages, contacts):
+    for module in (health, auth, sessions, users, rooms, invitations, messages, contacts, attachments):
         app.include_router(module.router, prefix="/api")
     app.include_router(ws_endpoint.router)
     return app
