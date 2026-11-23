@@ -33,7 +33,15 @@ async def test_get_user_by_username(make_client: ClientFactory) -> None:
     await register(await make_client(), "Bob.Smith")
     resp = await alice.get("/api/users/bob.smith")
     assert resp.status_code == 200
-    assert resp.json() == {"id": 2, "username": "Bob.Smith", "display_name": None, "presence": "offline"}
+    assert resp.json() == {
+        "id": 2,
+        "username": "Bob.Smith",
+        "display_name": None,
+        "presence": "offline",
+        "friendship": "none",
+        "banned_by_me": False,
+        "has_banned_me": False,
+    }
     missing = await alice.get("/api/users/nobody")
     assert missing.status_code == 404 and error_code(missing) == "user_not_found"
 

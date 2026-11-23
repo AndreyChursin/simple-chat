@@ -18,6 +18,7 @@ export const apiError = (status: number, code: string, message = code): Response
 export const DEFAULT_ROUTES: Record<string, Handler> = {
   'GET /api/invitations': () => json({ items: [] }),
   'GET /api/rooms/mine': () => json({ public: [], private: [] }),
+  'GET /api/contacts': () => json({ friends: [], incoming: [], outgoing: [], past_dms: [] }),
 };
 
 export function mockApi(overrides: Record<string, Handler>) {

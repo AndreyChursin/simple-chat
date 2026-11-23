@@ -16,7 +16,7 @@
 | 401 | Нет/просрочена/отозвана сессия; неверный логин | `not_authenticated`, `invalid_credentials`, `invalid_current_password` |
 | 403 | Аутентифицирован, но нет прав / запрещено правилом | `forbidden`, `not_room_admin`, `not_room_owner`, `not_message_author`, `cannot_modify_owner`, `room_banned`, `user_banned`, `dm_frozen`, `not_friends`, `origin_mismatch` |
 | 404 | Не существует **или** скрыто (приватная комната для не-участника, чужое вложение) | `not_found`, `room_not_found`, `user_not_found`, `message_not_found`, `attachment_not_found` |
-| 409 | Конфликт состояния/уникальности | `email_taken`, `username_taken`, `room_name_taken`, `already_member`, `already_friends`, `friend_request_exists`, `invitation_exists`, `invitation_not_pending`, `already_banned`, `user_is_banned_in_room` |
+| 409 | Конфликт состояния/уникальности | `email_taken`, `username_taken`, `room_name_taken`, `already_member`, `already_friends`, `friend_request_exists`, `invitation_exists`, `invitation_not_pending`, `request_not_pending`, `already_banned`, `user_is_banned_in_room` |
 | 410 | Токен сброса пароля использован/просрочен | `reset_token_invalid` |
 | 413 | Превышен лимит | `message_too_large` (>3072 байт), `image_too_large` (>3 МБ), `file_too_large` (>20 МБ), `too_many_attachments` (>10) |
 | 429 | Rate limit | `rate_limited` (+ заголовок `Retry-After`) |
@@ -75,14 +75,14 @@ Page<T>      = { items: T[], has_more: boolean, next_cursor: number|null }
 | Метод и путь | Тело | Ответ | Ошибки |
 |---|---|---|---|
 | `GET /api/contacts` | — | `200 {friends: [UserPublic + {dm_id, unread}], incoming: [{id, from: UserPublic, message, created_at}], outgoing: [{id, to: UserPublic, message, created_at}], past_dms: [{dm_id, peer: UserPublic, frozen: true, unread}]}` | — |
-| `POST /api/friend-requests` | `{username, message?}` (message ≤ 500) | `201 {request}`; если есть встречная pending-заявка — `200 {friendship: "accepted"}` | `404 user_not_found`, `400` (сам себе), `409 already_friends`, `409 friend_request_exists`, `403 user_banned` (бан в любую сторону) |
-| `POST /api/friend-requests/{id}/accept` | — | `200 {friend: UserPublic, dm_id}` | `404` (не адресат), `409` (уже обработана) |
-| `POST /api/friend-requests/{id}/decline` | — | `204` | `404` |
-| `DELETE /api/friend-requests/{id}` | — | `204` (отзыв своей исходящей) | `404` |
+| `POST /api/friend-requests` | `{username, message?}` (message ≤ 500) | `201 {request: {id, to: UserPublic, message, created_at}}`, адресату `friend_request_received`; если есть встречная pending-заявка — она принимается: `200 {friendship: "accepted", friend: UserPublic, dm_id}` | `404 user_not_found`, `400 validation_error` (сам себе, message > 500), `409 already_friends`, `409 friend_request_exists`, `403 user_banned` (бан в любую сторону) |
+| `POST /api/friend-requests/{id}/accept` | — | `200 {friend: UserPublic, dm_id}` — DM создаётся (или размораживается старый) здесь же; обоим `friend_added`, заявителю `friend_request_resolved{accepted}`, при старом DM — `dm_unfrozen` | `404 not_found` (не адресат), `409 request_not_pending` |
+| `POST /api/friend-requests/{id}/decline` | — | `204` (строка удаляется); заявителю `friend_request_resolved{declined}` | `404` (не адресат / не pending) |
+| `DELETE /api/friend-requests/{id}` | — | `204` (отзыв своей исходящей); адресату `friend_request_resolved{cancelled}` | `404` |
 | `DELETE /api/friends/{user_id}` | — | `204`; обоим `friend_removed` и `dm_frozen{reason:"not_friends"}` | `404` |
 | `GET /api/user-bans` | — | `200 {items: [{user: UserPublic, created_at}]}` (кого забанил я) | — |
-| `POST /api/user-bans` | `{user_id}` | `201`; удаляет дружбу/заявки пары; обоим `dm_frozen{reason:"user_banned"}` | `404`, `400` (сам себя), `409 already_banned` |
-| `DELETE /api/user-bans/{user_id}` | — | `204`; дружба **не** восстанавливается (DM остаётся frozen до новой дружбы) | `404` |
+| `POST /api/user-bans` | `{user_id}` | `201 {user: UserPublic, created_at}`; удаляет дружбу/заявку пары (дружба → обоим `friend_removed`; заявка → обоим `friend_request_resolved{cancelled}`); при наличии DM обоим `dm_frozen{reason:"user_banned"}` | `404 user_not_found`, `400` (сам себя), `409 already_banned` |
+| `DELETE /api/user-bans/{user_id}` | — | `204`; дружба **не** восстанавливается (DM остаётся frozen до новой дружбы; обоим `dm_frozen` с новой причиной, обычно `not_friends`) | `404` |
 
 Ограничения забаненного (B забанен A): B не может отправить A заявку (`403 user_banned`), писать в DM (`403 dm_frozen`), пригласить A в комнату (`403 user_banned`). A тоже не может писать B в DM (frozen для обоих). Видимость сообщений друг друга в общих комнатах **не** меняется.
 
@@ -130,8 +130,10 @@ Page<T>      = { items: T[], has_more: boolean, next_cursor: number|null }
 
 | Метод и путь | Ответ | Ошибки |
 |---|---|---|
-| `POST /api/dms` `{user_id}` | `200 {dm_id, peer: UserPublic, frozen: false}` — get-or-create | `403 not_friends`, `403 user_banned`, `404` |
+| `POST /api/dms` `{user_id}` | `200 {dm_id, peer: UserPublic, frozen: false, frozen_reason: null}` — get-or-create (обычно DM уже создан при принятии дружбы) | `403 not_friends`, `403 user_banned`, `404 user_not_found`, `400` (сам себе) |
 | `GET /api/dms/{dm_id}` | `200 {dm_id, peer: UserPublic, frozen: bool, frozen_reason: "not_friends"|"user_banned"|"user_deleted"|null}` | `404` (не сторона) |
+
+В замороженном DM запрещены отправка, редактирование и удаление (`403 dm_frozen`, `details.reason`); чтение истории, поиск и `around` доступны обеим сторонам. Живые события (`new_message`, `typing`) идут только по незамороженным DM — подписка на чат DM есть, пока стороны друзья.
 
 ## 9. Messages (одинаково для комнат и DM)
 

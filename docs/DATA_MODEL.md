@@ -157,7 +157,7 @@ UNIQUE INDEX `ux_room_invitations_pending ON (room_id, invitee_id) WHERE status 
 
 - CHECK `user_a_orig_id < user_b_orig_id` (канонический порядок), UNIQUE `(user_a_orig_id, user_b_orig_id)`.
 - Индексы: `(user_a_id)`, `(user_b_id)`.
-- Создаётся при первом открытии DM (только если друзья и нет бана). Writable-статус **не хранится**, а вычисляется: `user_a_id IS NOT NULL AND user_b_id IS NOT NULL AND friends(a,b) AND NOT banned_between(a,b)`. Удалённый собеседник → `NULL` → DM навсегда frozen для оставшегося.
+- Создаётся при принятии дружбы (у каждой пары друзей есть DM; `POST /api/dms` — get-or-create на всякий случай), повторная дружба той же пары размораживает тот же DM со всей историей. Writable-статус **не хранится**, а вычисляется: `user_a_id IS NOT NULL AND user_b_id IS NOT NULL AND friends(a,b) AND NOT banned_between(a,b)`. Удалённый собеседник → `NULL` → DM навсегда frozen для оставшегося.
 - Если обе стороны удалены (оба `NULL`) — DM удаляется вместе с сообщениями/файлами (сервис удаления аккаунта проверяет это).
 
 ### 2.11. `messages`

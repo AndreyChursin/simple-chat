@@ -8,11 +8,11 @@ from collections import deque
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, WebSocket
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 
 from app.core.deps import SESSION_COOKIE
 from app.core.security import is_origin_allowed
-from app.db.models import RoomMember, UserSession
+from app.db.models import DirectConversation, Friendship, FriendshipStatus, RoomMember, UserSession
 from app.db.session import SessionLocal
 from app.services import auth as auth_service
 from app.ws import handlers
@@ -35,9 +35,32 @@ HEARTBEAT_INTERVAL_MS = 25_000
 
 
 async def load_user_chats(user_id: int) -> set[ChatKey]:
+    """Rooms the user is in and the DMs that are writable (the peer is a friend). Frozen DMs are only
+    read through REST, so they carry no live events — and do not share presence with ex-friends."""
     async with SessionLocal() as db:
         room_ids = await db.scalars(select(RoomMember.room_id).where(RoomMember.user_id == user_id))
-        return {("room", rid) for rid in room_ids}
+        chats: set[ChatKey] = {("room", rid) for rid in room_ids}
+        dm = DirectConversation
+        dm_ids = await db.scalars(
+            select(dm.id)
+            .join(
+                Friendship,
+                and_(
+                    Friendship.status == FriendshipStatus.accepted,
+                    or_(
+                        and_(
+                            Friendship.requester_id == dm.user_a_id, Friendship.addressee_id == dm.user_b_id
+                        ),
+                        and_(
+                            Friendship.requester_id == dm.user_b_id, Friendship.addressee_id == dm.user_a_id
+                        ),
+                    ),
+                ),
+            )
+            .where(or_(dm.user_a_id == user_id, dm.user_b_id == user_id))
+        )
+        chats |= {("dm", did) for did in dm_ids}
+        return chats
 
 
 async def _session_alive(session_id: int) -> bool:

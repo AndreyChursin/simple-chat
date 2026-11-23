@@ -8,13 +8,22 @@ Room rules (docs/API_AND_WS_SPEC.md §5–7):
 """
 
 from dataclasses import dataclass
-from typing import Literal
+from typing import Any, Literal
 
-from sqlalchemy import and_, select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import AppError
-from app.db.models import Room, RoomBan, RoomMember, RoomVisibility
+from app.db.models import (
+    DirectConversation,
+    Friendship,
+    FriendshipStatus,
+    Room,
+    RoomBan,
+    RoomMember,
+    RoomVisibility,
+    UserBan,
+)
 
 RoomRole = Literal["owner", "admin", "member"]
 
@@ -131,9 +140,44 @@ async def is_room_member(db: AsyncSession, room_id: int, user_id: int) -> bool:
     return found is not None
 
 
+# --- contacts ---------------------------------------------------------------------------------------
+
+
+async def is_user_banned_between(db: AsyncSession, a: int, b: int) -> bool:
+    """A personal ban in either direction blocks the pair (docs/API_AND_WS_SPEC.md §4)."""
+    found = await db.scalar(
+        select(UserBan.banner_id).where(
+            or_(
+                and_(UserBan.banner_id == a, UserBan.banned_id == b),
+                and_(UserBan.banner_id == b, UserBan.banned_id == a),
+            )
+        )
+    )
+    return found is not None
+
+
+def pair_filter(a: int, b: int) -> Any:
+    return or_(
+        and_(Friendship.requester_id == a, Friendship.addressee_id == b),
+        and_(Friendship.requester_id == b, Friendship.addressee_id == a),
+    )
+
+
+async def are_friends(db: AsyncSession, a: int, b: int) -> bool:
+    found = await db.scalar(
+        select(Friendship.id).where(pair_filter(a, b), Friendship.status == FriendshipStatus.accepted)
+    )
+    return found is not None
+
+
+def user_banned() -> AppError:
+    return AppError(403, "user_banned", "One of you has blocked the other")
+
+
 # --- chats (room or DM) -----------------------------------------------------------------------------
 
 ChatType = Literal["room", "dm"]
+FrozenReason = Literal["not_friends", "user_banned", "user_deleted"]
 
 
 @dataclass(frozen=True)
@@ -152,12 +196,45 @@ class ChatAccess:
     user_id: int
     # Room admins/owner may delete any message of the room; nobody moderates a DM.
     can_moderate: bool
+    # DMs: why nobody can write (None = writable). Rooms are always writable for members.
+    frozen_reason: FrozenReason | None = None
+    dm: DirectConversation | None = None
+
+
+async def dm_frozen_reason(db: AsyncSession, dm: DirectConversation) -> FrozenReason | None:
+    """Writable = both sides exist, are friends and neither banned the other (computed, not stored)."""
+    if dm.user_a_id is None or dm.user_b_id is None:
+        return "user_deleted"
+    if await is_user_banned_between(db, dm.user_a_id, dm.user_b_id):
+        return "user_banned"
+    if not await are_friends(db, dm.user_a_id, dm.user_b_id):
+        return "not_friends"
+    return None
+
+
+async def require_dm_side(db: AsyncSession, dm_id: int, user_id: int) -> DirectConversation:
+    dm = await db.get(DirectConversation, dm_id)
+    if dm is None or not dm.has_side(user_id):
+        raise AppError(404, "not_found", "Conversation not found")
+    return dm
 
 
 async def require_chat_member(db: AsyncSession, chat: ChatRef, user_id: int) -> ChatAccess:
-    """Read/write access to a chat's messages: a current room member (404 for a private room or a
-    missing one, 403 for a public room the user is not in). DMs arrive with stage 6."""
+    """Read access to a chat's messages: a current room member (404 for a private room or a missing
+    one, 403 for a public room the user is not in) or a side of the DM (404 otherwise). A frozen DM
+    stays readable for both sides."""
     if chat.type == "room":
         acc = await require_room_member(db, chat.id, user_id)
         return ChatAccess(chat=chat, user_id=user_id, can_moderate=acc.is_admin)
-    raise AppError(404, "not_found", "Chat not found")
+    dm = await require_dm_side(db, chat.id, user_id)
+    return ChatAccess(
+        chat=chat, user_id=user_id, can_moderate=False, frozen_reason=await dm_frozen_reason(db, dm), dm=dm
+    )
+
+
+async def require_chat_writable(db: AsyncSession, chat: ChatRef, user_id: int) -> ChatAccess:
+    """Sending, editing or deleting: a frozen DM is read-only for both sides (403 dm_frozen)."""
+    acc = await require_chat_member(db, chat, user_id)
+    if acc.frozen_reason is not None:
+        raise AppError(403, "dm_frozen", "This conversation is read-only", {"reason": acc.frozen_reason})
+    return acc

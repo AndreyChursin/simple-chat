@@ -1,4 +1,4 @@
-"""Message REST endpoints (docs/API_AND_WS_SPEC.md §9). `{chat}` = `rooms/{id}` (DMs: `dms/{id}`, stage 6)."""
+"""Message REST endpoints (docs/API_AND_WS_SPEC.md §9). `{chat}` = `rooms/{id}` or `dms/{id}`."""
 
 from typing import Literal
 

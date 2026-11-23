@@ -117,7 +117,7 @@
 ### 4.5. Context Panel (комната)
 - **Room info:** имя, описание, visibility (🌐/🔒), дата создания.
 - **Owner** (с presence), **Admins**, **Members** — с точками статусов, сортировка online → AFK → offline, виртуализированный список (до 1000), поиск по участникам при > 50.
-- Клик по участнику → popover: профиль, `Send friend request` (с полем приветствия), `Message` (если друзья), а для admin/owner — `Make admin` (owner), `Remove admin`, `Ban from room`.
+- Клик по участнику → popover: профиль, `Send friend request` (с полем приветствия), `Message` (если друзья), а для admin/owner — `Make admin` (owner), `Remove admin`, `Ban from room` (модерационные действия — этап 8).
 - Кнопки **`Invite user`** (все участники; модалка с поиском по username) и **`Manage room`** (только admin/owner). Для обычного участника — `Leave room`; для owner вместо `Leave room` подсказка «Owner can't leave — delete the room in Manage room → Settings».
 
 ### 4.6. Модальное окно `Manage Room` (admin/owner)

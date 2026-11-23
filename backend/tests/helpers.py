@@ -73,3 +73,12 @@ async def make_admin(db: AsyncSession, room_id: int, user_id: int) -> None:
 
 async def send(client: httpx.AsyncClient, room_id: object, content: str, **extra: object) -> httpx.Response:
     return await client.post(f"/api/rooms/{room_id}/messages", json={"content": content, **extra})
+
+
+async def befriend(a: httpx.AsyncClient, b: httpx.AsyncClient, b_username: str) -> int:
+    """Make a and b friends; returns the DM id."""
+    req = await a.post("/api/friend-requests", json={"username": b_username})
+    assert req.status_code == 201, req.text
+    acc = await b.post(f"/api/friend-requests/{req.json()['request']['id']}/accept")
+    assert acc.status_code == 200, acc.text
+    return int(acc.json()["dm_id"])

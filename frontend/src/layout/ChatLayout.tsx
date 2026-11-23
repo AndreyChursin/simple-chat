@@ -1,10 +1,12 @@
 import { useQuery } from '@tanstack/react-query';
 import { useEffect } from 'react';
 import { Outlet, useLocation, useMatch } from 'react-router-dom';
+import { contactKeys, fetchDm } from '../api/contacts';
 import { fetchRoom, roomKeys } from '../api/rooms';
 import { useLayout } from '../stores/layout';
 import { ContextPanel } from './ContextPanel';
-import { NavSidebar } from './NavSidebar';
+import { NavSidebar, type ActiveChat } from './NavSidebar';
+import { PeerPanel } from './PeerPanel';
 
 export function parseRoomId(raw: string | undefined): number | null {
   if (!raw || !/^\d+$/.test(raw)) return null;
@@ -21,12 +23,19 @@ export function useRoomDetail(roomId: number | null) {
   });
 }
 
-/** Main Chat Layout (FRONTEND_SPEC §4.1): nav | chat | context, the context panel only when a room
- * the user belongs to is open. */
+export function useDmDetail(dmId: number | null) {
+  return useQuery({ queryKey: contactKeys.dm(dmId ?? 0), queryFn: () => fetchDm(dmId ?? 0), enabled: dmId !== null });
+}
+
+/** Main Chat Layout (FRONTEND_SPEC §4.1): nav | chat | context. The context panel shows the members of
+ * a room the user belongs to, or the peer card of a DM. */
 export function ChatLayout() {
-  const match = useMatch('/rooms/:roomId');
-  const roomId = match ? parseRoomId(match.params.roomId) : null;
+  const roomMatch = useMatch('/rooms/:roomId');
+  const dmMatch = useMatch('/dm/:dmId');
+  const roomId = roomMatch ? parseRoomId(roomMatch.params.roomId) : null;
+  const dmId = dmMatch ? parseRoomId(dmMatch.params.dmId) : null;
   const detail = useRoomDetail(roomId);
+  const dmDetail = useDmDetail(dmId);
   const { navOpen, ctxOpen, setNavOpen, setCtxOpen } = useLayout();
   const location = useLocation();
 
@@ -36,17 +45,21 @@ export function ChatLayout() {
   }, [location.pathname, setNavOpen, setCtxOpen]);
 
   const room = roomId !== null && detail.data?.my_role ? detail.data : null;
-  const classes = ['chat-layout', room ? 'with-ctx' : '', navOpen ? 'nav-open' : '', ctxOpen ? 'ctx-open' : '']
+  const dm = dmId !== null ? (dmDetail.data ?? null) : null;
+  const active: ActiveChat | null =
+    roomId !== null ? { type: 'room', id: roomId } : dmId !== null ? { type: 'dm', id: dmId } : null;
+  const classes = ['chat-layout', room || dm ? 'with-ctx' : '', navOpen ? 'nav-open' : '', ctxOpen ? 'ctx-open' : '']
     .filter(Boolean)
     .join(' ');
 
   return (
-    <div className={classes} data-mode={match ? 'compact' : 'expanded'}>
-      <NavSidebar activeRoomId={match ? roomId : null} />
+    <div className={classes} data-mode={active ? 'compact' : 'expanded'}>
+      <NavSidebar active={active} />
       <section className="chat-main">
         <Outlet />
       </section>
       {room && <ContextPanel room={room} />}
+      {dm && <PeerPanel dm={dm} />}
       {(navOpen || ctxOpen) && (
         <div
           className="drawer-backdrop"

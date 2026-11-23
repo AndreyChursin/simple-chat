@@ -283,8 +283,10 @@ describe('chat window', () => {
   it('counts messages arriving while the reader is scrolled up instead of jumping', async () => {
     virtuosoMock.scrolledUp = true;
     mockApi({ 'GET /api/rooms/1/messages?limit=50': () => json({ items: HISTORY, has_more: false, next_cursor: null }) });
-    renderChat();
+    const { container } = renderChat();
     await screen.findAllByText('my first');
+    // the simulated scroll-up must have landed before messages arrive
+    await waitFor(() => expect(container.querySelector('.feed')).toHaveAttribute('data-at-bottom', 'false'));
     act(() => {
       useMessages.getState().upsert('room:1', msg(4, { content: 'news 1' }));
       useMessages.getState().upsert('room:1', msg(5, { author: ALICE, content: 'mine elsewhere' }));

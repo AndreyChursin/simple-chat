@@ -27,7 +27,8 @@ async def invite(db: AsyncSession, *, inviter: User, room_id: int, username: str
         raise AppError(409, "already_member", "This user is already a member of the room")
     if await access.is_banned_from_room(db, room_id, invitee.id):
         raise AppError(409, "user_is_banned_in_room", "This user is banned from the room; unban them first")
-    # Stage 6: personal bans between inviter and invitee → 403 user_banned (access.is_user_banned_between).
+    if await access.is_user_banned_between(db, inviter.id, invitee.id):
+        raise access.user_banned()
     pending = await db.scalar(
         select(RoomInvitation.id).where(
             RoomInvitation.room_id == room_id,

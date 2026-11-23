@@ -1,7 +1,8 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import type { Me, Presence } from '../api/auth';
+import type { Me, Presence, UserPublic } from '../api/auth';
+import { contactKeys } from '../api/contacts';
 import { chatKey, fetchMessages, type ChatRef, type Message } from '../api/messages';
 import { roomKeys } from '../api/rooms';
 import { useMessages } from '../chat/messagesStore';
@@ -117,6 +118,32 @@ export function SocketBridge() {
           void qc.invalidateQueries({ queryKey: roomKeys.detail(roomId) });
           break;
         }
+        case 'friend_request_received': {
+          const req = e.request as { from: { username: string } };
+          void qc.invalidateQueries({ queryKey: contactKeys.all });
+          toast(`${req.from.username} sent you a friend request`);
+          break;
+        }
+        case 'friend_request_resolved':
+          void qc.invalidateQueries({ queryKey: contactKeys.all });
+          void qc.invalidateQueries({ queryKey: ['user'] });
+          break;
+        case 'friend_added': {
+          const friend = e.user as UserPublic;
+          if (friend.id !== null) usePresenceStore.getState().update(friend.id, friend.presence);
+          void qc.invalidateQueries({ queryKey: contactKeys.all });
+          void qc.invalidateQueries({ queryKey: ['user'] });
+          break;
+        }
+        case 'friend_removed':
+          void qc.invalidateQueries({ queryKey: contactKeys.all });
+          void qc.invalidateQueries({ queryKey: ['user'] });
+          break;
+        case 'dm_frozen':
+        case 'dm_unfrozen':
+          void qc.invalidateQueries({ queryKey: contactKeys.dm(Number(e.dm_id)) });
+          void qc.invalidateQueries({ queryKey: contactKeys.all });
+          break;
         case 'invitation_received': {
           const inv = e.invitation as { room: { name: string }; inviter: { username: string } };
           void qc.invalidateQueries({ queryKey: roomKeys.myInvitations });
@@ -132,6 +159,8 @@ export function SocketBridge() {
       if (!reconnected) return;
       void qc.invalidateQueries({ queryKey: roomKeys.mine });
       void qc.invalidateQueries({ queryKey: roomKeys.myInvitations });
+      void qc.invalidateQueries({ queryKey: contactKeys.all });
+      void qc.invalidateQueries({ queryKey: ['dm'] });
       void catchUp();
     };
     socket.onUnauthenticated = () => {

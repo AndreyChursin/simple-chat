@@ -63,7 +63,14 @@ def _require_text(content: str) -> None:
 
 
 def _in_chat(chat: ChatRef) -> Any:
-    return Message.room_id == chat.id
+    return Message.room_id == chat.id if chat.type == "room" else Message.dm_id == chat.id
+
+
+def chat_of(message: Message) -> ChatRef:
+    if message.room_id is not None:
+        return ChatRef("room", message.room_id)
+    assert message.dm_id is not None
+    return ChatRef("dm", message.dm_id)
 
 
 def serialize(message: Message) -> dict[str, Any]:
@@ -102,7 +109,7 @@ async def send_message(
 ) -> tuple[Message, bool]:
     """Returns (message, created). A repeated `client_msg_id` of the same author returns the existing
     message without publishing it again (idempotent resend after a reconnect)."""
-    await access.require_chat_member(db, chat, author.id)
+    await access.require_chat_writable(db, chat, author.id)
     if client_msg_id is not None:
         existing = await _existing_by_client_id(db, author.id, client_msg_id)
         if existing is not None:
@@ -116,7 +123,8 @@ async def send_message(
             raise AppError(400, "invalid_reply_target", "You can only reply to a message of the same chat")
 
     message = Message(
-        room_id=chat.id,
+        room_id=chat.id if chat.type == "room" else None,
+        dm_id=chat.id if chat.type == "dm" else None,
         author_id=author.id,
         client_msg_id=client_msg_id,
         content=content,
@@ -237,10 +245,11 @@ async def search_messages(
 
 
 async def _message_with_access(db: AsyncSession, message_id: int, user_id: int) -> tuple[Message, ChatAccess]:
+    """Editing and deleting need write access now: a frozen DM is read-only for both sides."""
     message = await _load(db, message_id)
-    if message is None or message.room_id is None:
+    if message is None:
         raise message_not_found()
-    acc = await access.require_chat_member(db, ChatRef("room", message.room_id), user_id)
+    acc = await access.require_chat_writable(db, chat_of(message), user_id)
     return message, acc
 
 

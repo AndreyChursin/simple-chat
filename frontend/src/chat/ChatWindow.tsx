@@ -37,12 +37,14 @@ interface Props {
   me: { id: number; username: string };
   canModerate: boolean;
   readOnly?: boolean;
+  /** Why a read-only chat is frozen (DMs). */
+  frozenText?: string;
   searchOpen: boolean;
   onCloseSearch: () => void;
 }
 
 /** Chat Window (FRONTEND_SPEC §4.3–4.4): virtualized feed + composer. Shared by rooms and DMs. */
-export function ChatWindow({ chat, me, canModerate, readOnly = false, searchOpen, onCloseSearch }: Props) {
+export function ChatWindow({ chat, me, canModerate, readOnly = false, frozenText, searchOpen, onCloseSearch }: Props) {
   const key = chatKey(chat);
   const state = useMessages((s) => s.chats[key]) ?? emptyChat();
   const store = useMessages.getState;
@@ -330,7 +332,9 @@ export function ChatWindow({ chat, me, canModerate, readOnly = false, searchOpen
       </div>
       <div className="typing-line" aria-live="polite">{typing}</div>
       {readOnly ? (
-        <div className="composer-frozen">🔒 This conversation is read-only</div>
+        <div className="composer-frozen" role="status">
+          🔒 This conversation is read-only{frozenText && <span className="muted"> — {frozenText}</span>}
+        </div>
       ) : (
         <Composer
           replyTo={replyTo}

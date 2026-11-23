@@ -1,4 +1,8 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
+import { Link, useNavigate } from 'react-router-dom';
+import { contactKeys, fetchProfile, openDm } from '../api/contacts';
+import { useMe } from '../auth/session';
+import { FriendRequestForm } from '../pages/ContactsPage';
 import { useState } from 'react';
 import { fetchAllMembers, leaveRoom, roomKeys, type RoomDetail, type RoomMember } from '../api/rooms';
 import { apiErrorToFields, FormError } from '../components/forms';
@@ -22,8 +26,45 @@ export function sortByPresence(members: RoomMember[], live: Record<number, Prese
   );
 }
 
-function MemberList({ title, members }: { title: string; members: RoomMember[] }) {
+/** Popover of a member (FRONTEND_SPEC §4.5): friend request or a link to the DM. Moderation actions
+ * arrive with stage 8. */
+function MemberCard({ member, onClose }: { member: RoomMember; onClose: () => void }) {
+  const profile = useQuery({ queryKey: contactKeys.profile(member.username), queryFn: () => fetchProfile(member.username) });
+  const navigate = useNavigate();
+  const message = useMutation({
+    mutationFn: () => openDm(member.id!),
+    onSuccess: (dm) => navigate(`/dm/${dm.dm_id}`),
+  });
+  const rel = profile.data;
+  return (
+    <div className="member-card" role="dialog" aria-label={`Actions for ${member.username}`}>
+      <div className="member-card-head">
+        <strong>{member.username}</strong>
+        {member.display_name && <span className="muted"> {member.display_name}</span>}
+        <button className="btn ghost small" aria-label="Close" onClick={onClose}>✕</button>
+      </div>
+      {!rel ? (
+        <p className="muted small">Loading…</p>
+      ) : rel.banned_by_me || rel.has_banned_me ? (
+        <p className="muted small">{rel.banned_by_me ? 'You blocked this user.' : 'This user blocked you.'}</p>
+      ) : rel.friendship === 'friends' ? (
+        <button className="btn small primary" disabled={message.isPending} onClick={() => message.mutate()}>Message</button>
+      ) : rel.friendship === 'pending_out' ? (
+        <p className="muted small">Friend request sent.</p>
+      ) : rel.friendship === 'pending_in' ? (
+        <p className="small">
+          They sent you a friend request — <Link to="/contacts?tab=requests">review it</Link>.
+        </p>
+      ) : (
+        <FriendRequestForm initialUsername={member.username} />
+      )}
+    </div>
+  );
+}
+
+function MemberList({ title, members, myId }: { title: string; members: RoomMember[]; myId: number | undefined }) {
   const live = usePresenceStore((s) => s.byUser);
+  const [open, setOpen] = useState<number | null>(null);
   members = sortByPresence(members, live);
   if (!members.length) return null;
   return (
@@ -35,8 +76,15 @@ function MemberList({ title, members }: { title: string; members: RoomMember[] }
         {members.map((m) => (
           <li key={m.id ?? m.username}>
             <UserPresence user={m} />
-            <span className="member-name">{m.username}</span>
+            {m.id !== null && m.id !== myId ? (
+              <button className="member-name link-button" aria-expanded={open === m.id} onClick={() => setOpen(open === m.id ? null : m.id)}>
+                {m.username}
+              </button>
+            ) : (
+              <span className="member-name">{m.username}</span>
+            )}
             {m.display_name && <span className="muted member-display"> {m.display_name}</span>}
+            {open === m.id && <MemberCard member={m} onClose={() => setOpen(null)} />}
           </li>
         ))}
       </ul>
@@ -47,6 +95,7 @@ function MemberList({ title, members }: { title: string; members: RoomMember[] }
 /** Right panel of a room (FRONTEND_SPEC §4.5): info, owner, admins, members, actions. */
 export function ContextPanel({ room }: { room: RoomDetail }) {
   const roomGone = useRoomGone();
+  const me = useMe().data;
   const setCtxOpen = useLayout((s) => s.setCtxOpen);
   const [dialog, setDialog] = useState<'invite' | 'manage' | null>(null);
   const [filter, setFilter] = useState('');
@@ -89,9 +138,9 @@ export function ContextPanel({ room }: { room: RoomDetail }) {
           value={filter} onChange={(e) => setFilter(e.target.value)} />
       )}
       {members.isPending && <p className="muted">Loading members…</p>}
-      <MemberList title="Owner" members={visible.filter((m) => m.role === 'owner')} />
-      <MemberList title="Admins" members={visible.filter((m) => m.role === 'admin')} />
-      <MemberList title="Members" members={visible.filter((m) => m.role === 'member')} />
+      <MemberList title="Owner" myId={me?.id} members={visible.filter((m) => m.role === 'owner')} />
+      <MemberList title="Admins" myId={me?.id} members={visible.filter((m) => m.role === 'admin')} />
+      <MemberList title="Members" myId={me?.id} members={visible.filter((m) => m.role === 'member')} />
 
       <div className="ctx-footer">
         <FormError message={leave.error ? apiErrorToFields(leave.error).form : null} />

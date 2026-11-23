@@ -18,6 +18,11 @@ describe('apiRequest', () => {
     await expect(apiRequest('/health')).resolves.toEqual({ status: 'ok', db: 'ok' });
   });
 
+  it('returns undefined for a success without a body (201 after an action)', async () => {
+    mockFetch(201, undefined);
+    await expect(apiRequest('/user-bans', { method: 'POST' })).resolves.toBeUndefined();
+  });
+
   it('returns undefined for 204', async () => {
     mockFetch(204, undefined);
     await expect(apiRequest('/auth/logout', { method: 'POST' })).resolves.toBeUndefined();

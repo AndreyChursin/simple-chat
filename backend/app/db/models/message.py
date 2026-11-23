@@ -11,19 +11,19 @@ MESSAGE_MAX_BYTES = 3072
 
 
 class Message(Base):
-    """A chat message. Stage 4 knows only rooms; migration 0005 adds `dm_id` and widens the one-chat
-    CHECK to `num_nonnulls(room_id, dm_id) = 1` (docs/DATA_MODEL.md §2.11).
+    """A chat message of a room or a DM: exactly one of `room_id` / `dm_id` (docs/DATA_MODEL.md §2.11).
 
     Relationships are lazy="raise": queries state their eager loads explicitly
     (app/services/messages.py MESSAGE_LOAD) so a page of history is a single SELECT."""
 
     __tablename__ = "messages"
     __table_args__ = (
-        CheckConstraint("num_nonnulls(room_id) = 1", name="one_chat"),
+        CheckConstraint("num_nonnulls(room_id, dm_id) = 1", name="one_chat"),
         CheckConstraint(f"octet_length(content) <= {MESSAGE_MAX_BYTES}", name="content_max_bytes"),
         Index(
             "ix_messages_room_id", "room_id", text("id DESC"), postgresql_where=text("room_id IS NOT NULL")
         ),
+        Index("ix_messages_dm_id", "dm_id", text("id DESC"), postgresql_where=text("dm_id IS NOT NULL")),
         Index(
             "ux_messages_client",
             "author_id",
@@ -41,6 +41,9 @@ class Message(Base):
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     room_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("rooms.id", ondelete="CASCADE"))
+    dm_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("direct_conversations.id", ondelete="CASCADE")
+    )
     author_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="SET NULL"))
     client_msg_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
     content: Mapped[str] = mapped_column(Text, server_default="")

@@ -122,12 +122,11 @@ class RoomInvitation(Base):
 
 
 class ChatReadState(Base):
-    """Per-user read cursor of a chat. Stage 3 knows only rooms; migration 0005 adds `dm_id` and turns
-    the one-chat CHECK into `num_nonnulls(room_id, dm_id) = 1` (docs/DATA_MODEL.md §2.13)."""
+    """Per-user read cursor of a room or a DM (docs/DATA_MODEL.md §2.13)."""
 
     __tablename__ = "chat_read_states"
     __table_args__ = (
-        CheckConstraint("num_nonnulls(room_id) = 1", name="one_chat"),
+        CheckConstraint("num_nonnulls(room_id, dm_id) = 1", name="one_chat"),
         Index(
             "ux_chat_read_states_user_room",
             "user_id",
@@ -135,11 +134,21 @@ class ChatReadState(Base):
             unique=True,
             postgresql_where=text("room_id IS NOT NULL"),
         ),
+        Index(
+            "ux_chat_read_states_user_dm",
+            "user_id",
+            "dm_id",
+            unique=True,
+            postgresql_where=text("dm_id IS NOT NULL"),
+        ),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"))
     room_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("rooms.id", ondelete="CASCADE"))
+    dm_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("direct_conversations.id", ondelete="CASCADE")
+    )
     # No FK: the message may be deleted.
     last_read_message_id: Mapped[int] = mapped_column(BigInteger, server_default="0")
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

@@ -233,8 +233,8 @@ class ConnectionManager:
         return self.presence.get(user_id, "offline")
 
     def audience(self, user_id: int) -> set[int]:
-        """Users who see `user_id`'s presence: everyone sharing a chat with them (rooms now; DMs, i.e.
-        friends, with stage 6), the user included. Only users with connections are subscribers."""
+        """Users who see `user_id`'s presence: everyone sharing a chat with them — room co-members and
+        friends (their writable DM) — the user included. Only users with connections are subscribers."""
         result = {user_id}
         for chat in self.user_chats.get(user_id, ()):
             result |= self.chat_subscribers.get(chat, set())

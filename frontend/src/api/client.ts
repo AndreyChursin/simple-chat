@@ -40,8 +40,9 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
   }
   const resp = await fetch(`/api${path}`, { credentials: 'same-origin', ...init, headers });
   if (!resp.ok) throw await toApiError(resp);
-  if (resp.status === 204) return undefined as T;
-  return (await resp.json()) as T;
+  // 204, or any success without a body (e.g. a 201 that only confirms the action)
+  const text = resp.status === 204 ? '' : await resp.text();
+  return (text ? JSON.parse(text) : undefined) as T;
 }
 
 export interface Health {

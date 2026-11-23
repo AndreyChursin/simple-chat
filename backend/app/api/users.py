@@ -4,10 +4,11 @@ from fastapi import APIRouter, Body, Query
 from pydantic import BaseModel, ValidationError
 from sqlalchemy import select
 
-from app.api.schemas import Me, MeResponse, UserPublic
+from app.api.schemas import Me, MeResponse, UserProfile, UserPublic
 from app.core.deps import CurrentUser, DbSession
 from app.core.errors import AppError
 from app.db.models import User
+from app.services import contacts as contact_service
 
 router = APIRouter(tags=["users"])
 
@@ -40,11 +41,17 @@ async def search_users(
 
 
 @router.get("/users/{username}")
-async def get_user(username: str, _: CurrentUser, db: DbSession) -> UserPublic:
+async def get_user(username: str, me: CurrentUser, db: DbSession) -> UserProfile:
     user = await db.scalar(select(User).where(User.username == username))
     if user is None:
         raise AppError(404, "user_not_found", "User not found")
-    return UserPublic.of(user)
+    rel = await contact_service.relation(db, user_id=me.id, other_id=user.id)
+    return UserProfile(
+        **UserPublic.of(user).model_dump(),
+        friendship=rel.friendship,
+        banned_by_me=rel.banned_by_me,
+        has_banned_me=rel.has_banned_me,
+    )
 
 
 class _DisplayNameModel(BaseModel):

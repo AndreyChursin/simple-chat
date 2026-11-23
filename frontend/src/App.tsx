@@ -5,6 +5,8 @@ import { TopMenu } from './components/TopMenu';
 import { ChatLayout } from './layout/ChatLayout';
 import { ForgotPasswordPage, LoginPage, RegisterPage, ResetPasswordPage } from './pages/AuthPages';
 import { CatalogPage } from './pages/CatalogPage';
+import { ContactsPage } from './pages/ContactsPage';
+import { DmPage } from './pages/DmPage';
 import { HomePage } from './pages/HomePage';
 import { PrivateRoomsPage } from './pages/PrivateRoomsPage';
 import { ProfilePage } from './pages/ProfilePage';
@@ -25,16 +27,6 @@ function AppLayout() {
   );
 }
 
-/** Menu targets whose screens arrive in later roadmap stages (6: contacts). */
-function NotYetPage({ title }: { title: string }) {
-  return (
-    <main className="page narrow">
-      <h1>{title}</h1>
-      <p className="muted">This section is not available yet.</p>
-    </main>
-  );
-}
-
 export default function App() {
   return (
     <Routes>
@@ -47,12 +39,13 @@ export default function App() {
         <Route element={<ChatLayout />}>
           <Route index element={<HomePage />} />
           <Route path="/rooms/:roomId" element={<RoomPage />} />
+          <Route path="/dm/:dmId" element={<DmPage />} />
         </Route>
         <Route path="/rooms/catalog" element={<CatalogPage />} />
         <Route path="/rooms/private" element={<PrivateRoomsPage />} />
         <Route path="/sessions" element={<SessionsPage />} />
         <Route path="/profile" element={<ProfilePage />} />
-        <Route path="/contacts" element={<NotYetPage title="Contacts" />} />
+        <Route path="/contacts" element={<ContactsPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

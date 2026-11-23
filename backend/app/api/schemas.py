@@ -270,10 +270,14 @@ class MessageOut(BaseModel):
                 excerpt="" if r.deleted_at else r.content[:REPLY_EXCERPT_CHARS],
                 deleted=r.deleted_at is not None,
             )
-        assert m.room_id is not None
+        chat = (
+            ChatRefOut(type="room", id=m.room_id)
+            if m.room_id is not None
+            else ChatRefOut(type="dm", id=m.dm_id or 0)
+        )
         return cls(
             id=m.id,
-            chat=ChatRefOut(type="room", id=m.room_id),
+            chat=chat,
             author=UserPublic.of(m.author),
             content="" if m.deleted_at else m.content,
             created_at=m.created_at,
@@ -306,3 +310,83 @@ class SendMessageRequest(StrictModel):
 
 class EditMessageRequest(StrictModel):
     content: str
+
+
+# --- contacts and DMs (docs/API_AND_WS_SPEC.md §3, §4, §8) ----------------------------------------
+
+FriendshipState = Literal["none", "pending_out", "pending_in", "friends"]
+DmFrozenReason = Literal["not_friends", "user_banned", "user_deleted"]
+
+
+class UserProfile(UserPublic):
+    friendship: FriendshipState
+    banned_by_me: bool
+    has_banned_me: bool
+
+
+class FriendOut(UserPublic):
+    dm_id: int | None
+    unread: int = 0
+
+
+class IncomingRequest(BaseModel):
+    id: int
+    from_: UserPublic = Field(serialization_alias="from")
+    message: str | None
+    created_at: datetime
+
+
+class OutgoingRequest(BaseModel):
+    id: int
+    to: UserPublic
+    message: str | None
+    created_at: datetime
+
+
+class PastDm(BaseModel):
+    dm_id: int
+    peer: UserPublic
+    frozen: bool = True
+    unread: int = 0
+
+
+class ContactsOut(BaseModel):
+    friends: list[FriendOut]
+    incoming: list[IncomingRequest]
+    outgoing: list[OutgoingRequest]
+    past_dms: list[PastDm]
+
+
+class FriendRequestBody(StrictModel):
+    username: str = Field(min_length=1, max_length=32)
+    message: str | None = Field(None, max_length=500)
+
+
+class FriendRequestCreated(BaseModel):
+    request: OutgoingRequest
+
+
+class FriendAccepted(BaseModel):
+    friendship: Literal["accepted"] = "accepted"
+    friend: UserPublic
+    dm_id: int
+
+
+class UserIdBody(StrictModel):
+    user_id: int = Field(ge=1)
+
+
+class BanOut(BaseModel):
+    user: UserPublic
+    created_at: datetime
+
+
+class BanList(BaseModel):
+    items: list[BanOut]
+
+
+class DmOut(BaseModel):
+    dm_id: int
+    peer: UserPublic
+    frozen: bool
+    frozen_reason: DmFrozenReason | None
