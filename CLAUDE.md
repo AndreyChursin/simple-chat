@@ -9,6 +9,7 @@
 | [docs/API_AND_WS_SPEC.md](docs/API_AND_WS_SPEC.md) | REST-эндпоинты, коды ошибок, WebSocket-протокол |
 | [docs/FRONTEND_SPEC.md](docs/FRONTEND_SPEC.md) | Экраны, компоненты, поведение UI |
 | [docs/ROADMAP_AND_DOD.md](docs/ROADMAP_AND_DOD.md) | Этапы разработки, Definition of Done |
+| [docs/MANUAL_TEST_CHECKLIST.md](docs/MANUAL_TEST_CHECKLIST.md) | Ручная проверка в браузере (дополняется на каждом этапе) |
 
 **Перед реализацией любой фичи прочитай соответствующий раздел спецификаций. Если код расходится со спецификацией — сначала обнови спецификацию (в том же коммите), потом код.**
 
