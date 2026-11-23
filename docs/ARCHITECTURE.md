@@ -109,11 +109,11 @@ volumes:
 ```nginx
 client_max_body_size 21m;
 location /api/ { proxy_pass http://backend:8000; proxy_set_header Host $host;
-                 proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                 proxy_set_header X-Forwarded-For $remote_addr;
                  proxy_request_buffering off; }   # потоковая проверка размера на backend
 location /ws   { proxy_pass http://backend:8000; proxy_http_version 1.1;
                  proxy_set_header Upgrade $http_upgrade; proxy_set_header Connection "upgrade";
-                 proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                 proxy_set_header X-Forwarded-For $remote_addr;
                  proxy_read_timeout 3600s; }
 location /     { try_files $uri /index.html; }
 # НЕТ location для /data/uploads — файлы отдаёт только backend.
@@ -262,8 +262,10 @@ client A ──send_message(WS) или POST /messages──▶ services.messages
 ## 6. Аутентификация
 
 - Токен сессии: `secrets.token_urlsafe(32)` → cookie `chat_session`; в БД `token_hash = sha256(token)`.
-- Cookie: `HttpOnly; SameSite=Lax; Path=/; Secure` — если `APP_ORIGIN` https. «Keep me signed in» → `Max-Age=2592000` (30 дн.), `expires_at` продлевается при активности не чаще 1 раза в час. Без галочки — без `Max-Age`, `expires_at = now + 24h`, продлевается так же.
-- На каждый запрос: поиск сессии по хешу, проверка `expires_at`, обновление `last_seen_at`/`ip` (не чаще 1 раза в минуту).
+- Cookie: `HttpOnly; SameSite=Lax; Path=/; Secure` — если `APP_ORIGIN` https. «Keep me signed in» → `Max-Age=2592000` (30 дн.); `Max-Age` cookie перевыпускается при каждом `GET /api/auth/me` (SPA вызывает его при загрузке). Без галочки — cookie без `Max-Age`, серверный TTL 24 ч.
+- На каждый запрос: поиск сессии по хешу, проверка `expires_at`; не чаще 1 раза в минуту — обновление `last_seen_at`, `ip` и скользящее продление `expires_at = now + TTL` (30 дн. / 24 ч).
+- IP: nginx **перезаписывает** `X-Forwarded-For` значением `$remote_addr` (клиент не может подделать IP на экране Sessions), uvicorn `--proxy-headers` кладёт его в `request.client`.
+- Хеширование Argon2id выполняется в worker-потоке (`anyio.to_thread`), чтобы не блокировать event loop; для неизвестного email выполняется фиктивная проверка (одинаковое время ответа).
 - CSRF: SameSite=Lax + проверка `Origin` для POST/PUT/PATCH/DELETE и WS.
 - Rate limit (in-memory): login 10/мин на IP+email, forgot-password 3/час на email и 20/час на IP → `429`.
 

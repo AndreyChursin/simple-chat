@@ -6,7 +6,7 @@ module-level singletons.
 
 import os
 import tempfile
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
 from pathlib import Path
 
 _TEST_DB_URL = os.environ.get("TEST_DATABASE_URL")
@@ -19,6 +19,7 @@ os.environ["DATABASE_URL"] = _TEST_DB_URL
 os.environ["DB_DISABLE_POOL"] = "true"  # each test gets its own event loop
 os.environ["UPLOAD_DIR"] = tempfile.mkdtemp(prefix="chat-test-uploads-")
 os.environ["APP_ORIGIN"] = "http://testserver"
+os.environ["MAIL_BACKEND"] = "memory"
 
 import httpx  # noqa: E402
 import pytest  # noqa: E402
@@ -27,6 +28,8 @@ from alembic.config import Config  # noqa: E402
 from sqlalchemy import text  # noqa: E402
 from sqlalchemy.ext.asyncio import AsyncSession  # noqa: E402
 
+from app.core import mail  # noqa: E402
+from app.core.ratelimit import rate_limiter  # noqa: E402
 from app.db.session import SessionLocal, engine  # noqa: E402
 from app.main import create_app  # noqa: E402
 
@@ -51,7 +54,9 @@ def _migrated_database() -> Iterator[None]:
 
 
 @pytest.fixture(autouse=True)
-async def _clean_tables() -> AsyncIterator[None]:
+async def _clean_state() -> AsyncIterator[None]:
+    rate_limiter.reset()
+    mail.outbox.clear()
     yield
     async with engine.begin() as conn:
         tables = (
@@ -76,11 +81,31 @@ def app():  # type: ignore[no-untyped-def]
     return create_app()
 
 
+ClientFactory = Callable[..., Awaitable[httpx.AsyncClient]]
+
+
 @pytest.fixture
-async def client(app) -> AsyncIterator[httpx.AsyncClient]:  # type: ignore[no-untyped-def]
-    transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as c:
-        yield c
+async def make_client(app) -> AsyncIterator[ClientFactory]:  # type: ignore[no-untyped-def]
+    """Each client is an independent "browser" with its own cookie jar."""
+    clients: list[httpx.AsyncClient] = []
+
+    async def factory(user_agent: str = "pytest-browser/1.0") -> httpx.AsyncClient:
+        c = httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://testserver",
+            headers={"User-Agent": user_agent},
+        )
+        clients.append(c)
+        return c
+
+    yield factory
+    for c in clients:
+        await c.aclose()
+
+
+@pytest.fixture
+async def client(make_client: ClientFactory) -> httpx.AsyncClient:
+    return await make_client()
 
 
 @pytest.fixture

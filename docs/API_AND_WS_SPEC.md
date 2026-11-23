@@ -65,9 +65,9 @@ Page<T>      = { items: T[], has_more: boolean, next_cursor: number|null }
 
 | Метод и путь | Тело | Ответ | Ошибки |
 |---|---|---|---|
-| `GET /api/users/{username}` | — | `200 UserPublic + {friendship: "none"|"pending_out"|"pending_in"|"friends", banned_by_me: bool, has_banned_me: bool}` | `404` |
+| `GET /api/users/{username}` | — | `200 UserPublic + {friendship: "none"|"pending_out"|"pending_in"|"friends", banned_by_me: bool, has_banned_me: bool}` (поля дружбы/банов добавляются на этапе 6; до него — только `UserPublic`) | `404 user_not_found` |
 | `GET /api/users?search=q&limit=20` | — | `200 {items: UserPublic[]}` (префиксный поиск по username, ≥ 2 символов) | `400` |
-| `PATCH /api/me` | `{display_name}` | `200 {user}` | `400 username_immutable` если в теле есть `username`; `400 validation_error` для email (смена email вне scope) |
+| `PATCH /api/me` | `{display_name}` (строка ≤ 64 после trim; `""`/`null` → сброс) | `200 {user}` | `400 username_immutable` если в теле есть `username`; `400 validation_error` для любого другого поля (в т.ч. email — смена email вне scope) |
 | `DELETE /api/me` | `{password}` | `204`; каскад по DATA_MODEL.md §3.2, cookie очищен, все WS закрыты | `401 invalid_current_password` |
 
 ## 4. Contacts, Friends, User-Bans

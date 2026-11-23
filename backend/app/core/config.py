@@ -1,5 +1,6 @@
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -22,8 +23,13 @@ class Settings(BaseSettings):
     smtp_password: str | None = None
     smtp_use_tls: bool = False
     mail_from: str = "Chat <no-reply@chat.local>"
+    mail_backend: Literal["smtp", "memory"] = "smtp"
 
+    # "Keep me signed in": persistent cookie + server TTL in days (sliding).
     session_ttl_days: int = 30
+    # Without "Keep me signed in": browser-session cookie + server TTL in hours (sliding).
+    session_short_ttl_hours: int = 24
+    password_reset_ttl_minutes: int = 60
     log_level: str = "INFO"
 
     @property

@@ -20,13 +20,13 @@
 
 ## Этап 2 — Аккаунты, сессии, пароли
 **Scope:** `users`, `user_sessions`, `password_reset_tokens`; register/login/logout/me; Keep me signed in; Sessions (список, revoke, revoke others); change password; forgot/reset через Mailpit; Profile (display_name, username read-only); экраны Sign in/up, Forgot/Reset, Sessions, Profile (без Delete account); верхнее меню.
-- [ ] Email и username уникальны (регистронезависимо); username неизменяем (API `400`, триггер БД).
-- [ ] Argon2id; `401 invalid_credentials` одинаков для неверного email/пароля.
-- [ ] Keep me signed in: сессия переживает перезапуск браузера; без галочки — session cookie.
-- [ ] Sign out завершает только текущую сессию (тест: 2 сессии, logout одной — другая жива).
-- [ ] Sessions показывают браузер/ОС/IP/время; revoke чужой сессии работает.
-- [ ] Письмо сброса видно в Mailpit; токен одноразовый, TTL 1 ч, после сброса все сессии завершены.
-- [ ] Rate limit login/forgot → `429`.
+- [x] Email и username уникальны (регистронезависимо); username неизменяем (API `400`, триггер БД).
+- [x] Argon2id; `401 invalid_credentials` одинаков для неверного email/пароля.
+- [x] Keep me signed in: сессия переживает перезапуск браузера; без галочки — session cookie.
+- [x] Sign out завершает только текущую сессию (тест: 2 сессии, logout одной — другая жива).
+- [x] Sessions показывают браузер/ОС/IP/время; revoke чужой сессии работает.
+- [x] Письмо сброса видно в Mailpit; токен одноразовый, TTL 1 ч, после сброса все сессии завершены.
+- [x] Rate limit login/forgot → `429`.
 
 **Commit:** `feat(auth): registration, sessions, password reset` → `/clear`
 
