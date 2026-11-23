@@ -150,7 +150,9 @@ async def live_server(app) -> AsyncIterator[str]:  # type: ignore[no-untyped-def
             task.result()
         await asyncio.sleep(0.01)
     port = server.servers[0].sockets[0].getsockname()[1]
+    ticker = asyncio.create_task(manager.run_presence_ticker())  # lifespan is off: start it here
     yield f"127.0.0.1:{port}"
+    ticker.cancel()
     await manager.close_all()
     server.should_exit = True
     await task

@@ -36,7 +36,7 @@ async def handle(conn: Connection, username: str, payload: Any) -> None:
         if isinstance(event, Heartbeat):
             return
         if isinstance(event, Activity):
-            conn.last_activity = time.monotonic()
+            await manager.activity(conn)
             return
         if isinstance(event, Typing):
             await _typing(conn, username, event)

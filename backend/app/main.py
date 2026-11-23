@@ -31,11 +31,13 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     for sub in UPLOAD_SUBDIRS:
         (settings.upload_dir / sub).mkdir(parents=True, exist_ok=True)
     housekeeping = asyncio.create_task(maintenance.run_forever(), name="housekeeping")
+    presence = asyncio.create_task(manager.run_presence_ticker(), name="presence-ticker")
     yield
     await manager.close_all()
-    housekeeping.cancel()
-    with contextlib.suppress(asyncio.CancelledError):
-        await housekeeping
+    for task in (presence, housekeeping):
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
     await engine.dispose()
 
 

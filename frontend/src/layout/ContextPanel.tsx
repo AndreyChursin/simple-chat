@@ -2,7 +2,9 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { fetchAllMembers, leaveRoom, roomKeys, type RoomDetail, type RoomMember } from '../api/rooms';
 import { apiErrorToFields, FormError } from '../components/forms';
-import { PresenceDot } from '../components/Presence';
+import type { Presence } from '../api/auth';
+import { UserPresence } from '../components/Presence';
+import { PRESENCE_RANK, usePresenceStore } from '../stores/presence';
 import { InviteUserModal } from '../rooms/InviteUserModal';
 import { ManageRoomModal } from '../rooms/ManageRoomModal';
 import { useRoomGone } from '../rooms/useRoomGone';
@@ -10,7 +12,19 @@ import { useLayout } from '../stores/layout';
 
 const MEMBER_SEARCH_THRESHOLD = 50;
 
+/** online → AFK → offline, then username; re-sorted live as presence changes. */
+export function sortByPresence(members: RoomMember[], live: Record<number, Presence>): RoomMember[] {
+  const presenceOf = (m: RoomMember) => (m.id !== null ? live[m.id] : undefined) ?? m.presence;
+  return [...members].sort(
+    (a, b) =>
+      PRESENCE_RANK[presenceOf(a)] - PRESENCE_RANK[presenceOf(b)] ||
+      a.username.localeCompare(b.username, undefined, { sensitivity: 'base' }),
+  );
+}
+
 function MemberList({ title, members }: { title: string; members: RoomMember[] }) {
+  const live = usePresenceStore((s) => s.byUser);
+  members = sortByPresence(members, live);
   if (!members.length) return null;
   return (
     <section className="ctx-group">
@@ -20,7 +34,7 @@ function MemberList({ title, members }: { title: string; members: RoomMember[] }
       <ul className="member-list">
         {members.map((m) => (
           <li key={m.id ?? m.username}>
-            <PresenceDot presence={m.presence} />
+            <UserPresence user={m} />
             <span className="member-name">{m.username}</span>
             {m.display_name && <span className="muted member-display"> {m.display_name}</span>}
           </li>

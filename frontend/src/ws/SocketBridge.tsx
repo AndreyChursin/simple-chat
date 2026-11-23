@@ -1,12 +1,13 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import type { Me } from '../api/auth';
+import type { Me, Presence } from '../api/auth';
 import { chatKey, fetchMessages, type ChatRef, type Message } from '../api/messages';
 import { roomKeys } from '../api/rooms';
 import { useMessages } from '../chat/messagesStore';
 import { useTyping } from '../chat/typingStore';
 import { ME_KEY } from '../queryClient';
+import { usePresenceStore } from '../stores/presence';
 import { toast } from '../stores/toasts';
 import { socket, type ServerEvent } from './socket';
 
@@ -81,6 +82,12 @@ export function SocketBridge() {
           useTyping.getState().typing(chatKey(e.chat as ChatRef), user.id, user.username);
           break;
         }
+        case 'presence_snapshot':
+          usePresenceStore.getState().snapshot(e.users as { user_id: number; presence: Presence }[]);
+          break;
+        case 'presence_update':
+          usePresenceStore.getState().update(Number(e.user_id), e.presence as Presence);
+          break;
         case 'room_access_revoked': {
           const roomId = Number(e.room_id);
           const name = qc.getQueryData<{ name: string }>(roomKeys.detail(roomId))?.name;
@@ -139,6 +146,7 @@ export function SocketBridge() {
       unsubscribe();
       socket.stop();
       messages.reset();
+      usePresenceStore.getState().reset();
     };
   }, [qc]);
 

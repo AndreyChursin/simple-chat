@@ -32,7 +32,6 @@ CLOSE_TOO_BIG = 1009
 CLOSE_UNSUPPORTED = 1003
 EVENTS_PER_SECOND = 20
 HEARTBEAT_INTERVAL_MS = 25_000
-AFK_TIMEOUT_MS = 60_000
 
 
 async def load_user_chats(user_id: int) -> set[ChatKey]:
@@ -87,9 +86,10 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                 "session_id": session_id,
                 "server_time": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
                 "heartbeat_interval_ms": HEARTBEAT_INTERVAL_MS,
-                "afk_timeout_ms": AFK_TIMEOUT_MS,
+                "afk_timeout_ms": int(manager.afk_timeout * 1000),
             },
         )
+        await manager.announce(conn)
         await _read_loop(ws, conn, username)
     finally:
         await manager.disconnect(conn)

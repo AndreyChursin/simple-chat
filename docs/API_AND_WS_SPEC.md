@@ -214,7 +214,7 @@ Page<T>      = { items: T[], has_more: boolean, next_cursor: number|null }
 // при подключении
 { "type": "hello", "user_id": 3, "session_id": 41, "server_time": "2026-11-23T10:00:00Z",
   "heartbeat_interval_ms": 25000, "afk_timeout_ms": 60000 }
-{ "type": "presence_snapshot", "users": [ { "user_id": 7, "presence": "AFK" }, ... ] }  // аудитория пользователя
+{ "type": "presence_snapshot", "users": [ { "user_id": 7, "presence": "AFK" }, ... ] }  // сразу после hello: не-offline из аудитории; не перечисленные — offline
 
 // подтверждение и ошибки
 { "type": "ack", "req_id": "r-17", "message": { /* Message */ } }
@@ -230,7 +230,7 @@ Page<T>      = { items: T[], has_more: boolean, next_cursor: number|null }
   "deleted_by": { "id": 9, "username": "mod" } }
 { "type": "typing", "chat": { "type": "room", "id": 12 }, "user": { "id": 7, "username": "bob" } }
 
-// presence (аудитории пользователя: друзья + участники общих комнат), < 2 с
+// presence (аудитории пользователя: друзья + участники общих комнат, а также его собственным вкладкам), < 2 с
 { "type": "presence_update", "user_id": 7, "presence": "online" | "AFK" | "offline" }
 
 // непрочитанное (синхронизация между вкладками и сессиями; после mark_read и при вступлении в чат)

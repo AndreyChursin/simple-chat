@@ -55,12 +55,14 @@
 
 ## Этап 5 — Presence и multi-tab
 **Scope:** `activity`/`heartbeat`, presence-тикер 1 с, grace 1 с на disconnect, агрегация по вкладкам и сессиям, аудитория (друзья + общие комнаты), `presence_snapshot`, `presence_update`; закрытие WS при logout/revoke (`session_revoked`, 4001); индикаторы ●/◐/○ в nav, context panel, Manage Room.
-- [ ] `online`: активность хотя бы в одной вкладке за 60 с.
-- [ ] `AFK`: открытые вкладки есть, но ни в одной нет активности > 60 с (тест с подменой часов).
-- [ ] `offline`: все вкладки во всех сессиях закрыты.
-- [ ] Рассылка изменения < 2 с (тест: closing last socket → `presence_update offline` ≤ 2 с).
-- [ ] Перезагрузка страницы не даёт мигания offline.
-- [ ] Revoke сессии мгновенно разлогинивает вкладки этой сессии и только их.
+- [x] `online`: активность хотя бы в одной вкладке за 60 с.
+- [x] `AFK`: открытые вкладки есть, но ни в одной нет активности > 60 с (тест с подменой часов).
+- [x] `offline`: все вкладки во всех сессиях закрыты.
+- [x] Рассылка изменения < 2 с (тест: closing last socket → `presence_update offline` ≤ 2 с).
+- [x] Перезагрузка страницы не даёт мигания offline.
+- [x] Revoke сессии мгновенно разлогинивает вкладки этой сессии и только их.
+
+Индикаторы: в этом этапе — правая панель комнаты (живые точки и пересортировка online → AFK → offline). Контакты в nav и вкладка `[Members]` Manage Room появляются на этапах 6 и 8 и используют тот же `UserPresence`. Закрытие WS при logout/revoke сделано на этапе 4.
 
 **Commit:** `feat(presence): multi-tab online/AFK/offline aggregation` → `/clear`
 

@@ -1,10 +1,10 @@
-"""Presence lookup used by API serializers. Real aggregation over WebSocket connections arrives in
-stage 5 (docs/ARCHITECTURE.md §4.3); until then nobody has a connection, so everyone is offline."""
+"""Presence lookup used by API serializers: the state last broadcast by the WebSocket manager
+(docs/ARCHITECTURE.md §4.3), so REST and WS never disagree."""
 
-from typing import Literal
+from app.ws.manager import Presence, manager
 
-Presence = Literal["online", "AFK", "offline"]
+__all__ = ["Presence", "get_presence"]
 
 
 def get_presence(user_id: int) -> Presence:
-    return "offline"
+    return manager.get_presence(user_id)
