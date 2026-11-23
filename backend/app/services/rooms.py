@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import and_, delete, or_, select, text, update
+from sqlalchemy import and_, delete, func, or_, select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,6 +18,7 @@ from app.core.errors import AppError
 from app.db.models import (
     ChatReadState,
     InvitationStatus,
+    Message,
     Room,
     RoomBan,
     RoomInvitation,
@@ -72,10 +73,13 @@ async def add_member(db: AsyncSession, room: Room, user_id: int, *, is_admin: bo
     )
     if inserted is None:
         return False
-    # History that existed before joining is not unread. Stage 4 sets this to max(messages.id).
+    # History that existed before joining is not unread.
+    last_id = (
+        select(func.coalesce(func.max(Message.id), 0)).where(Message.room_id == room.id).scalar_subquery()
+    )
     await db.execute(
         pg_insert(ChatReadState)
-        .values(user_id=user_id, room_id=room.id, last_read_message_id=0, updated_at=utcnow())
+        .values(user_id=user_id, room_id=room.id, last_read_message_id=last_id, updated_at=utcnow())
         .on_conflict_do_nothing(
             index_elements=["user_id", "room_id"], index_where=text("room_id IS NOT NULL")
         )

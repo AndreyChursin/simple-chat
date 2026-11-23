@@ -4,6 +4,7 @@ Environment must be configured before `app` is imported, because settings and th
 module-level singletons.
 """
 
+import asyncio
 import os
 import tempfile
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
@@ -17,13 +18,16 @@ if os.environ.get("DATABASE_URL") == _TEST_DB_URL:
     raise RuntimeError("TEST_DATABASE_URL must differ from DATABASE_URL (tests truncate every table)")
 
 os.environ["DATABASE_URL"] = _TEST_DB_URL
-os.environ["DB_DISABLE_POOL"] = "true"  # each test gets its own event loop
+# A real connection pool like production; it is disposed after every test because each test runs in
+# its own event loop and asyncpg connections are bound to a loop.
+os.environ["DB_DISABLE_POOL"] = "false"
 os.environ["UPLOAD_DIR"] = tempfile.mkdtemp(prefix="chat-test-uploads-")
 os.environ["APP_ORIGIN"] = "http://testserver"
 os.environ["MAIL_BACKEND"] = "memory"
 
 import httpx  # noqa: E402
 import pytest  # noqa: E402
+import uvicorn  # noqa: E402
 from alembic import command  # noqa: E402
 from alembic.config import Config  # noqa: E402
 from sqlalchemy import text  # noqa: E402
@@ -33,6 +37,7 @@ from app.core import mail  # noqa: E402
 from app.core.ratelimit import rate_limiter  # noqa: E402
 from app.db.session import SessionLocal, engine  # noqa: E402
 from app.main import create_app  # noqa: E402
+from app.ws import handlers as ws_handlers  # noqa: E402
 from app.ws.manager import manager  # noqa: E402
 
 BACKEND_ROOT = Path(__file__).resolve().parent.parent
@@ -59,6 +64,8 @@ def _migrated_database() -> Iterator[None]:
 async def _clean_state() -> AsyncIterator[None]:
     rate_limiter.reset()
     mail.outbox.clear()
+    manager.reset()
+    ws_handlers._typing_sent.clear()
     yield
     async with engine.begin() as conn:
         tables = (
@@ -76,6 +83,7 @@ async def _clean_state() -> AsyncIterator[None]:
         if tables:
             quoted = ", ".join(f'"{t}"' for t in tables)
             await conn.execute(text(f"TRUNCATE {quoted} RESTART IDENTITY CASCADE"))
+    await engine.dispose()
 
 
 @pytest.fixture
@@ -126,3 +134,23 @@ def events(monkeypatch: pytest.MonkeyPatch) -> list[tuple[list[int], dict[str, A
 
     monkeypatch.setattr(manager, "send_to_users", send_to_users)
     return captured
+
+
+@pytest.fixture
+async def live_server(app) -> AsyncIterator[str]:  # type: ignore[no-untyped-def]
+    """The app served by a real uvicorn on a random port, inside the test's event loop, so REST calls
+    through `make_client` (ASGI transport) and WebSocket clients share one ConnectionManager."""
+    config = uvicorn.Config(
+        app, host="127.0.0.1", port=0, lifespan="off", log_level="warning", ws_max_size=16384
+    )
+    server = uvicorn.Server(config)
+    task = asyncio.create_task(server.serve())
+    while not server.started:
+        if task.done():
+            task.result()
+        await asyncio.sleep(0.01)
+    port = server.servers[0].sockets[0].getsockname()[1]
+    yield f"127.0.0.1:{port}"
+    await manager.close_all()
+    server.should_exit = True
+    await task

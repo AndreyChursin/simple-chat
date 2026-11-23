@@ -9,6 +9,11 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
 addopts = "-ra"
+# uvicorn 0.34 still drives websockets through its deprecated legacy API; not our code.
+filterwarnings = [
+    "ignore::DeprecationWarning:websockets.*",
+    "ignore::DeprecationWarning:uvicorn.protocols.websockets.*",
+]
 
 [tool.ruff]
 line-length = 110

@@ -129,3 +129,35 @@ async def is_room_member(db: AsyncSession, room_id: int, user_id: int) -> bool:
         select(RoomMember.user_id).where(RoomMember.room_id == room_id, RoomMember.user_id == user_id)
     )
     return found is not None
+
+
+# --- chats (room or DM) -----------------------------------------------------------------------------
+
+ChatType = Literal["room", "dm"]
+
+
+@dataclass(frozen=True)
+class ChatRef:
+    type: ChatType
+    id: int
+
+    @property
+    def key(self) -> tuple[ChatType, int]:
+        return (self.type, self.id)
+
+
+@dataclass
+class ChatAccess:
+    chat: ChatRef
+    user_id: int
+    # Room admins/owner may delete any message of the room; nobody moderates a DM.
+    can_moderate: bool
+
+
+async def require_chat_member(db: AsyncSession, chat: ChatRef, user_id: int) -> ChatAccess:
+    """Read/write access to a chat's messages: a current room member (404 for a private room or a
+    missing one, 403 for a public room the user is not in). DMs arrive with stage 6."""
+    if chat.type == "room":
+        acc = await require_room_member(db, chat.id, user_id)
+        return ChatAccess(chat=chat, user_id=user_id, can_moderate=acc.is_admin)
+    raise AppError(404, "not_found", "Chat not found")

@@ -10,6 +10,7 @@ import { PrivateRoomsPage } from './pages/PrivateRoomsPage';
 import { ProfilePage } from './pages/ProfilePage';
 import { RoomPage } from './pages/RoomPage';
 import { SessionsPage } from './pages/SessionsPage';
+import { SocketBridge } from './ws/SocketBridge';
 
 function AppLayout() {
   return (
@@ -18,6 +19,7 @@ function AppLayout() {
         <TopMenu />
         <Outlet />
         <Toasts />
+        <SocketBridge />
       </div>
     </RequireAuth>
   );

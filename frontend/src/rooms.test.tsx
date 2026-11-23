@@ -240,3 +240,33 @@ describe('private rooms and invitations', () => {
     await waitFor(() => expect(screen.queryByLabelText(/pending invitations/)).not.toBeInTheDocument());
   });
 });
+
+describe('websocket lifetime', () => {
+  it('keeps one socket per tab across navigation', async () => {
+    const opened: string[] = [];
+    const Base = globalThis.WebSocket;
+    vi.stubGlobal(
+      'WebSocket',
+      class extends (Base as unknown as new (url: string) => object) {
+        static readonly OPEN = 1;
+        constructor(url: string) {
+          super(url);
+          opened.push(url);
+        }
+      },
+    );
+    mockApi({
+      'GET /api/auth/me': () => json({ user: ME }),
+      'GET /api/rooms/mine': () => json(MINE),
+      'GET /api/rooms/catalog?limit=30': () => json({ items: [], has_more: false, next_cursor: null }),
+    });
+    renderApp('/');
+    await screen.findByRole('link', { name: '#general' });
+    fireEvent.click(screen.getByRole('link', { name: 'Public Rooms' }));
+    await screen.findByRole('heading', { name: 'Public rooms' });
+    fireEvent.click(screen.getByRole('link', { name: 'Private Rooms' }));
+    await screen.findByRole('heading', { name: 'Private rooms' });
+    expect(opened).toHaveLength(1);
+    expect(opened[0]).toMatch(/\/ws\?tab_id=/);
+  });
+});

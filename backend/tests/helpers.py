@@ -69,3 +69,7 @@ async def make_admin(db: AsyncSession, room_id: int, user_id: int) -> None:
         {"r": room_id, "u": user_id},
     )
     await db.commit()
+
+
+async def send(client: httpx.AsyncClient, room_id: object, content: str, **extra: object) -> httpx.Response:
+    return await client.post(f"/api/rooms/{room_id}/messages", json={"content": content, **extra})

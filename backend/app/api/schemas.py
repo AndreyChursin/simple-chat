@@ -1,11 +1,12 @@
 """Request/response models shared by routers (docs/API_AND_WS_SPEC.md §0.3)."""
 
+import uuid
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, StringConstraints
 
-from app.db.models import Room, RoomInvitation, RoomVisibility, User
+from app.db.models import Message, Room, RoomInvitation, RoomVisibility, User
 from app.services.access import RoomRole
 from app.services.presence import Presence, get_presence
 
@@ -226,3 +227,82 @@ class RoomInvitationItem(BaseModel):
 
 class RoomInvitations(BaseModel):
     items: list[RoomInvitationItem]
+
+
+# --- messages (docs/API_AND_WS_SPEC.md §0.3, §9) --------------------------------------------------
+
+REPLY_EXCERPT_CHARS = 200
+ChatType = Literal["room", "dm"]
+
+
+class ChatRefOut(BaseModel):
+    type: ChatType
+    id: int
+
+
+class ReplyRef(BaseModel):
+    id: int
+    author: UserPublic
+    excerpt: str
+    deleted: bool
+
+
+class MessageOut(BaseModel):
+    id: int
+    chat: ChatRefOut
+    author: UserPublic
+    content: str
+    created_at: datetime
+    edited_at: datetime | None
+    deleted: bool
+    reply_to: ReplyRef | None
+    attachments: list[dict[str, Any]]  # Attachment objects arrive with stage 7
+    client_msg_id: str | None
+
+    @classmethod
+    def of(cls, m: Message) -> "MessageOut":
+        reply = None
+        if m.reply_to is not None:
+            r = m.reply_to
+            reply = ReplyRef(
+                id=r.id,
+                author=UserPublic.of(r.author),
+                excerpt="" if r.deleted_at else r.content[:REPLY_EXCERPT_CHARS],
+                deleted=r.deleted_at is not None,
+            )
+        assert m.room_id is not None
+        return cls(
+            id=m.id,
+            chat=ChatRefOut(type="room", id=m.room_id),
+            author=UserPublic.of(m.author),
+            content="" if m.deleted_at else m.content,
+            created_at=m.created_at,
+            edited_at=m.edited_at,
+            deleted=m.deleted_at is not None,
+            reply_to=reply,
+            attachments=[],
+            client_msg_id=str(m.client_msg_id) if m.client_msg_id else None,
+        )
+
+
+class MessagePage(BaseModel):
+    items: list[MessageOut]
+    has_more: bool
+    next_cursor: int | None
+
+
+class MessagesAround(BaseModel):
+    items: list[MessageOut]
+    has_more_before: bool
+    has_more_after: bool
+
+
+class SendMessageRequest(StrictModel):
+    # No max_length here: the limit is in UTF-8 bytes and answers 413, not 400 (services/messages.py).
+    content: str = ""
+    reply_to_message_id: int | None = None
+    client_msg_id: uuid.UUID | None = None
+
+
+class EditMessageRequest(StrictModel):
+    content: str

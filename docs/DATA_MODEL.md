@@ -185,7 +185,7 @@ CHECK «reply в том же чате» обеспечивается серви�
 - `ix_messages_reply ON messages (reply_to_message_id) WHERE reply_to_message_id IS NOT NULL`
 - `ix_messages_content_trgm ON messages USING gin (content gin_trgm_ops) WHERE deleted_at IS NULL` — поиск по истории.
 
-Курсорная пагинация (index-only range scan, стоимость не зависит от глубины истории):
+Курсорная пагинация (index-only range scan, стоимость не зависит от глубины истории). В сервисе страница берётся **в два шага**: сначала `SELECT id … ORDER BY id DESC LIMIT n+1` (Index Only Scan по `ix_messages_room_id`), затем строки с JOIN'ами `WHERE id IN (…)`. Запрос целых строк одним SELECT планировщик может выполнить как «обратный скан PK + фильтр room_id», который деградирует для комнат, чья история лежит далеко в прошлом (см. тест `test_history_page_is_fast_and_uses_index`):
 
 ```sql
 -- старее курсора (infinite scroll вверх)
@@ -300,5 +300,5 @@ FROM chat_read_states crs WHERE crs.user_id = :user_id AND crs.room_id IS NOT NU
 | Revoke сессии / Sign out | строка `user_sessions` | всё остальное |
 
 ## 4. Миграции
-- `0001_extensions` (citext, pg_trgm; ENUM-типы создаются в миграциях своих таблиц), `0002_users_sessions`, `0003_rooms` (+ `chat_read_states` только с `room_id` и CHECK `num_nonnulls(room_id) = 1`), `0004_messages_attachments`, `0005_contacts_dms` (добавляет `chat_read_states.dm_id`, FK, partial UNIQUE и расширяет CHECK до `num_nonnulls(room_id, dm_id) = 1`) — нарезка по этапам roadmap; триггеры (`users_username_immutable`, `room_owner_is_admin_member`) — в миграциях как raw SQL.
+- `0001_extensions` (citext, pg_trgm; ENUM-типы создаются в миграциях своих таблиц), `0002_users_sessions`, `0003_rooms` (+ `chat_read_states` только с `room_id` и CHECK `num_nonnulls(room_id) = 1`), `0004_check_constraint_names` (исправляет удвоенные имена CHECK из 0002/0003: `op.create_table` применял naming convention к уже полным именам; в новых миграциях полные имена оборачиваются в `op.f()`), `0005_messages` (только `room_id`), `0006_contacts_dms` (добавляет `dm_id` в `messages` и `chat_read_states`: FK, partial UNIQUE/индексы и расширяет CHECK до `num_nonnulls(room_id, dm_id) = 1`), `0007_attachments` — нарезка по этапам roadmap; триггеры (`users_username_immutable`, `room_owner_is_admin_member`) — в миграциях как raw SQL.
 - Seed-данных нет. Тестовая БД `chat_test` создаётся `db/init/01-create-test-db.sql` (с расширениями), схема накатывается фикстурой pytest через `alembic upgrade head`, каждый тест — в транзакции с откатом / `TRUNCATE ... RESTART IDENTITY CASCADE`.

@@ -41,13 +41,15 @@
 
 ## Этап 4 — Сообщения и WebSocket-ядро
 **Scope:** `messages`; WS endpoint, `ConnectionManager` (очереди, `chat_subscribers`, `user_chats`), `hello`, `send_message`/`ack`/`error`, `new_message`, `message_edited`, `message_deleted`, `typing`; REST история с курсорами (`before_id`, `after_id`, `around`), поиск, edit/delete (автор), reply; Chat Window (virtuoso, infinite scroll вверх, умный автоскролл, «N new messages»), Composer (multiline, Enter/Shift+Enter, emoji, reply, edit, счётчик байт), reconnect с догрузкой `after_id`, идемпотентность `client_msg_id`.
-- [ ] Текст: UTF-8, multiline, emoji; > 3072 байт → `413`/WS `message_too_large`; пустое → `400`.
-- [ ] Ответ с цитатой; reply в другой чат → `400 invalid_reply_target`.
-- [ ] Редактирование только автором, пометка `edited`; удаление автором.
-- [ ] Доставка < 3 с во все вкладки всех участников (WS-тест с таймингом).
-- [ ] История 10 000 сообщений: запрос страницы < 50 мс (тест с генерацией 10k строк, `EXPLAIN` использует `ix_messages_room_id`), прокрутка плавная.
-- [ ] Автоскролл не дёргает ленту при чтении истории; при нахождении внизу — следует за новыми.
-- [ ] Офлайн-пользователь видит пропущенные сообщения при следующем входе.
+- [x] Текст: UTF-8, multiline, emoji; > 3072 байт → `413`/WS `message_too_large`; пустое → `400`.
+- [x] Ответ с цитатой; reply в другой чат → `400 invalid_reply_target`.
+- [x] Редактирование только автором, пометка `edited`; удаление автором.
+- [x] Доставка < 3 с во все вкладки всех участников (WS-тест с таймингом).
+- [x] История 10 000 сообщений: запрос страницы < 50 мс (тест с генерацией 10k строк, `EXPLAIN` использует `ix_messages_room_id`), прокрутка плавная.
+- [x] Автоскролл не дёргает ленту при чтении истории; при нахождении внизу — следует за новыми.
+- [x] Офлайн-пользователь видит пропущенные сообщения при следующем входе.
+
+Сверх scope: закрытие WS при logout/revoke (`session_revoked`, 4001) и отписка от чата при выходе/удалении комнаты сделаны здесь же — иначе отозванные сокеты продолжали бы получать сообщения.
 
 **Commit:** `feat(messages): realtime messaging, history pagination, composer` → `/clear`
 

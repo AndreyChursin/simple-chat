@@ -6,12 +6,14 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from app.api import auth, health, invitations, rooms, sessions, users
+from app.api import auth, health, invitations, messages, rooms, sessions, users
 from app.core.config import get_settings
 from app.core.errors import register_error_handlers
 from app.core.security import origin_check_middleware
 from app.db.session import engine
 from app.services import maintenance
+from app.ws import endpoint as ws_endpoint
+from app.ws.manager import manager
 
 UPLOAD_SUBDIRS = ("rooms", "dms", "tmp")
 
@@ -30,6 +32,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         (settings.upload_dir / sub).mkdir(parents=True, exist_ok=True)
     housekeeping = asyncio.create_task(maintenance.run_forever(), name="housekeeping")
     yield
+    await manager.close_all()
     housekeeping.cancel()
     with contextlib.suppress(asyncio.CancelledError):
         await housekeeping
@@ -47,8 +50,9 @@ def create_app() -> FastAPI:
     )
     register_error_handlers(app)
     app.middleware("http")(origin_check_middleware)
-    for module in (health, auth, sessions, users, rooms, invitations):
+    for module in (health, auth, sessions, users, rooms, invitations, messages):
         app.include_router(module.router, prefix="/api")
+    app.include_router(ws_endpoint.router)
     return app
 
 

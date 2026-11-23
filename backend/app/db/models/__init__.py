@@ -1,6 +1,7 @@
 """SQLAlchemy models. Import every model module here so Alembic autogenerate sees all tables."""
 
 from app.db.base import Base
+from app.db.models.message import MESSAGE_MAX_BYTES, Message
 from app.db.models.room import (
     ChatReadState,
     InvitationStatus,
@@ -16,6 +17,8 @@ __all__ = [
     "Base",
     "ChatReadState",
     "InvitationStatus",
+    "MESSAGE_MAX_BYTES",
+    "Message",
     "PasswordResetToken",
     "Room",
     "RoomBan",

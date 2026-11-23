@@ -12,9 +12,9 @@
 ### 0.2. Коды
 | HTTP | Когда | Примеры `code` |
 |---|---|---|
-| 400 | Невалидный ввод (включая ошибки Pydantic) | `validation_error`, `empty_message`, `invalid_reply_target`, `username_immutable`, `owner_cannot_leave` |
+| 400 | Невалидный ввод (включая ошибки Pydantic) | `validation_error`, `empty_message`, `invalid_reply_target`, `message_deleted`, `username_immutable`, `owner_cannot_leave` |
 | 401 | Нет/просрочена/отозвана сессия; неверный логин | `not_authenticated`, `invalid_credentials`, `invalid_current_password` |
-| 403 | Аутентифицирован, но нет прав / запрещено правилом | `forbidden`, `not_room_admin`, `not_room_owner`, `cannot_modify_owner`, `room_banned`, `user_banned`, `dm_frozen`, `not_friends`, `origin_mismatch` |
+| 403 | Аутентифицирован, но нет прав / запрещено правилом | `forbidden`, `not_room_admin`, `not_room_owner`, `not_message_author`, `cannot_modify_owner`, `room_banned`, `user_banned`, `dm_frozen`, `not_friends`, `origin_mismatch` |
 | 404 | Не существует **или** скрыто (приватная комната для не-участника, чужое вложение) | `not_found`, `room_not_found`, `user_not_found`, `message_not_found`, `attachment_not_found` |
 | 409 | Конфликт состояния/уникальности | `email_taken`, `username_taken`, `room_name_taken`, `already_member`, `already_friends`, `friend_request_exists`, `invitation_exists`, `invitation_not_pending`, `already_banned`, `user_is_banned_in_room` |
 | 410 | Токен сброса пароля использован/просрочен | `reset_token_invalid` |
@@ -141,12 +141,14 @@ Page<T>      = { items: T[], has_more: boolean, next_cursor: number|null }
 |---|---|---|---|
 | `GET /api/{chat}/messages` | `before_id?`, `after_id?` (взаимоисключающие), `limit` 1–100 (default 50) | `200 Page<Message>`; `before_id`/без курсора — `items` по возрастанию id, последние `limit` перед курсором, `next_cursor` = минимальный id; `after_id` — следующие после курсора | `400` (оба курсора), `403`, `404` |
 | `GET /api/{chat}/messages/around/{message_id}?limit=50` | — | `200 {items, has_more_before, has_more_after}` (переход к цитате) | `404` |
-| `GET /api/{chat}/messages/search?q=&before_id=&limit=30` | `q` ≥ 2 символов | `200 Page<Message>` (ILIKE, trgm-индекс) | `400`, `403`, `404` |
+| `GET /api/{chat}/messages/search?q=&before_id=&limit=30` | `q` ≥ 2 символов после trim (подстрока, без учёта регистра; удалённые не ищутся) | `200 Page<Message>` — **от новых к старым**, `next_cursor` = минимальный id страницы (передаётся как `before_id`) | `400`, `403`, `404` |
 | `POST /api/{chat}/messages` | `{content, reply_to_message_id?, attachment_ids?: number[], client_msg_id?: uuid}` | `201 Message`; fan-out `new_message` | `400 empty_message` (пусто и нет вложений), `413 message_too_large`, `413 too_many_attachments`, `400 invalid_reply_target` (другой чат/не существует), `400` (вложение не моё/не pending/другой чат), `403 dm_frozen`, `403`, `404`, `429` |
-| `PATCH /api/messages/{id}` | `{content}` | `200 Message` (`edited_at` установлен); `message_edited` | `403` (не автор), `403 dm_frozen`, `400` (удалено/пустое без вложений), `413 message_too_large`, `404` |
-| `DELETE /api/messages/{id}` | — | `204`; `message_deleted` | `403` (не автор и не admin комнаты; в DM — только автор), `403 dm_frozen`, `404` |
-| `GET /api/me/unread` | — | `200 {items: [{chat: ChatRef, unread: number, last_message_id}]}` (`unread` ≤ 100) | — |
-| `POST /api/{chat}/read` | `{last_read_message_id}` | `204`; всем вкладкам пользователя `unread_update` | `404` |
+| `PATCH /api/messages/{id}` | `{content}` | `200 Message` (`edited_at` установлен; тот же текст — без изменений и без события); `message_edited` | `403 not_message_author`, `403 dm_frozen`, `400 message_deleted`, `400 empty_message` (пустое без вложений), `413 message_too_large`, `404 message_not_found`; потерян доступ к чату — `403`/`404` как для чата |
+| `DELETE /api/messages/{id}` | — | `204`; `message_deleted`. Повторное удаление — `204` без события | `403 forbidden` (не автор и не admin комнаты; в DM — только автор), `403 dm_frozen`, `404 message_not_found` |
+| `GET /api/me/unread` (этап 9) | — | `200 {items: [{chat: ChatRef, unread: number, last_message_id}]}` (`unread` ≤ 100) | — |
+| `POST /api/{chat}/read` (этап 9) | `{last_read_message_id}` | `204`; всем вкладкам пользователя `unread_update` | `404` |
+
+`attachment_ids` принимается с этапа 7 (до него — `400 validation_error`). `around` возвращает окно `limit` (2–100) с центром на сообщении: `limit/2` до него и остальное начиная с него. Отправка ограничена 5/с на пользователя (WS и REST вместе). Повтор `client_msg_id` того же автора возвращает уже созданное сообщение (`201`, без повторной рассылки) и не расходует лимит.
 
 Длина `content` проверяется в байтах UTF-8 после нормализации переносов строк `\r\n → \n`; ведущие/хвостовые пробелы сохраняются, но строка из одних пробелов считается пустой.
 
@@ -177,6 +179,7 @@ Page<T>      = { items: T[], has_more: boolean, next_cursor: number|null }
 | 4003 | Origin не разрешён | Не переподключаться |
 | 4008 | Переполнена очередь отправки (медленный клиент) | Переподключиться + догрузка `after_id` |
 | 1009 | Фрейм > 16 КБ | Баг клиента |
+| 1003 | Бинарный фрейм | Баг клиента |
 | 1001/1006/1011 | Рестарт/обрыв | Reconnect с экспоненциальной задержкой 0.5 с → 10 с, ±20% jitter |
 
 ### 12.2. Client → Server
@@ -199,11 +202,11 @@ Page<T>      = { items: T[], has_more: boolean, next_cursor: number|null }
   "reply_to_message_id": 1042,          // optional
   "attachment_ids": [77] }              // optional
 
-// пометить прочитанным до id включительно
+// пометить прочитанным до id включительно (этап 9)
 { "type": "mark_read", "chat": { "type": "room", "id": 12 }, "last_read_message_id": 1050 }
 ```
 
-Редактирование и удаление сообщений — через REST (§9); результаты приходят всем по WS.
+Редактирование и удаление сообщений — через REST (§9); результаты приходят всем по WS. Неизвестный `type` или невалидное событие → `error{code:"validation_error"}`; > 20 событий/с на соединение → `error{code:"rate_limited", req_id:null}` (событие отброшено). `typing` — только в чат, где пользователь участник (иначе `error forbidden`), не возвращается самому печатающему.
 
 ### 12.3. Server → Client
 
@@ -216,7 +219,8 @@ Page<T>      = { items: T[], has_more: boolean, next_cursor: number|null }
 // подтверждение и ошибки
 { "type": "ack", "req_id": "r-17", "message": { /* Message */ } }
 { "type": "error", "req_id": "r-17", "code": "message_too_large", "message": "Message exceeds 3072 bytes" }
-//  коды: message_too_large | empty_message | dm_frozen | forbidden | not_found | invalid_reply_target
+//  коды: message_too_large | empty_message | dm_frozen | forbidden | not_found | room_not_found | invalid_reply_target
+//        | internal_error
 //        | too_many_attachments | rate_limited | validation_error
 
 // сообщения (всем online-участникам чата, во все вкладки, включая отправителя)
@@ -256,5 +260,7 @@ Page<T>      = { items: T[], has_more: boolean, next_cursor: number|null }
 ### 12.4. Гарантии доставки и порядок
 - Внутри одного соединения события доставляются в порядке публикации (одна очередь на соединение).
 - `new_message` для одного чата публикуются в порядке commit; клиент дополнительно сортирует по `id` и дедуплицирует по `id` / `client_msg_id`.
+- Отправитель получает и `new_message` (во все свои вкладки), и `ack` (в отправившую); порядок этих двух событий не гарантирован.
+- Неподтверждённые `send_message` клиент повторяет после каждого reconnect с тем же `client_msg_id`.
 - WS — канал уведомлений, источник истины — REST. После reconnect клиент: `GET /api/me/unread`, для открытого чата `GET messages?after_id=<last_id>`, перезапрос `GET /api/contacts` и `GET /api/rooms/mine`.
 - `send_message` при закрытом сокете: клиент ставит сообщение в локальную очередь со статусом «sending» и отправляет после reconnect с тем же `client_msg_id` (сервер вернёт существующее при повторе).

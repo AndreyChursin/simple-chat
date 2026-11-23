@@ -1,13 +1,16 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { ApiError } from '../api/client';
 import { joinRoom, roomKeys, type RoomDetail } from '../api/rooms';
+import { useMe } from '../auth/session';
+import { ChatWindow } from '../chat/ChatWindow';
 import { apiErrorToFields, FormError } from '../components/forms';
 import { parseRoomId, useRoomDetail } from '../layout/ChatLayout';
 import { useLayout } from '../stores/layout';
 import { NavToggle } from './HomePage';
 
-function RoomHeader({ room }: { room: RoomDetail }) {
+function RoomHeader({ room, onSearch }: { room: RoomDetail; onSearch: () => void }) {
   const setCtxOpen = useLayout((s) => s.setCtxOpen);
   return (
     <header className="chat-header">
@@ -23,6 +26,11 @@ function RoomHeader({ room }: { room: RoomDetail }) {
           </p>
         )}
       </div>
+      {room.my_role && (
+        <button className="btn ghost small" aria-label="Search messages" title="Search messages" onClick={onSearch}>
+          🔍
+        </button>
+      )}
       <button className="btn ghost small ctx-toggle" aria-label="Show members" title="Members"
         onClick={() => setCtxOpen(true)} disabled={!room.my_role}>
         👥 {room.member_count}
@@ -55,6 +63,8 @@ function JoinPrompt({ room }: { room: RoomDetail }) {
 export function RoomPage() {
   const roomId = parseRoomId(useParams().roomId);
   const detail = useRoomDetail(roomId);
+  const me = useMe().data;
+  const [searchOpen, setSearchOpen] = useState(false);
 
   if (roomId === null || detail.isError) {
     const banned = detail.error instanceof ApiError && detail.error.code === 'room_banned';
@@ -68,14 +78,20 @@ export function RoomPage() {
       </div>
     );
   }
-  if (detail.isPending) return <div className="chat-empty muted">Loading…</div>;
+  if (detail.isPending || !me) return <div className="chat-empty muted">Loading…</div>;
   const room = detail.data;
 
   return (
     <div className="chat-window">
-      <RoomHeader room={room} />
+      <RoomHeader room={room} onSearch={() => setSearchOpen((v) => !v)} />
       {room.my_role ? (
-        <div className="chat-feed-placeholder muted">No messages yet.</div>
+        <ChatWindow
+          chat={{ type: 'room', id: room.id }}
+          me={me}
+          canModerate={room.my_role === 'owner' || room.my_role === 'admin'}
+          searchOpen={searchOpen}
+          onCloseSearch={() => setSearchOpen(false)}
+        />
       ) : (
         <JoinPrompt room={room} />
       )}

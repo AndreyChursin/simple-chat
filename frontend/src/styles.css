@@ -235,7 +235,6 @@ code { font-size: 0.9em; }
 .chat-header-description {
   margin: 2px 0 0; color: var(--muted); font-size: 0.9em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.chat-feed-placeholder { flex: 1; display: grid; place-items: center; }
 .chat-empty { padding: 32px 24px; display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
 .quick-links { display: flex; gap: 8px; flex-wrap: wrap; }
 
@@ -295,3 +294,85 @@ code { font-size: 0.9em; }
   overflow-wrap: anywhere;
 }
 .row-actions { display: flex; gap: 6px; flex-shrink: 0; }
+
+/* ---- chat window (FRONTEND_SPEC §4.3–4.4) ----------------------------------------------------- */
+.chat-window { min-height: 0; }
+.chat-body { flex: 1; min-height: 0; display: flex; flex-direction: column; position: relative; }
+.feed { flex: 1; min-height: 0; position: relative; display: flex; flex-direction: column; }
+.feed-list { flex: 1; }
+.feed-edge { text-align: center; padding: 10px; font-size: 0.85em; min-height: 8px; }
+/* flow-root: children's vertical margins stay inside the item, so react-virtuoso measures true heights
+   (collapsed margins made it stop short of the bottom when following new messages). */
+.msg-wrap { padding: 0 16px; display: flow-root; }
+.date-sep { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 0.8em; margin: 14px 0 6px; }
+.date-sep::before, .date-sep::after { content: ''; flex: 1; border-top: 1px solid var(--border); }
+.msg { position: relative; padding: 6px 8px 4px 44px; border-radius: 6px; margin-top: 6px; }
+.msg.grouped { margin-top: 0; padding-top: 1px; }
+.msg:hover, .msg:focus-within { background: var(--surface); }
+.msg.highlight { background: color-mix(in srgb, var(--accent) 18%, transparent); transition: background 0.3s; }
+.msg.pending-sending { opacity: 0.55; }
+.msg.pending-failed .msg-body { color: var(--danger); }
+.msg-head { display: flex; align-items: baseline; gap: 8px; }
+.avatar {
+  position: absolute; left: 6px; top: 8px; width: 30px; height: 30px; border-radius: 50%;
+  display: grid; place-items: center; font-size: 0.75em; font-weight: 700;
+  background: color-mix(in srgb, var(--accent) 20%, var(--surface)); color: var(--accent);
+}
+.msg-author { font-weight: 600; }
+.msg-author.deleted-user { font-style: italic; font-weight: 400; color: var(--muted); }
+.msg-head time { color: var(--muted); font-size: 0.78em; }
+.msg-body { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.4; }
+.edited { color: var(--muted); font-size: 0.78em; }
+.msg-quote {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; font: inherit;
+  font-size: 0.88em; color: var(--fg); background: none; cursor: pointer; width: 100%; max-width: 640px;
+  border: 0; border-left: 3px solid var(--accent); padding: 2px 8px; margin: 2px 0 4px;
+}
+.msg-quote span { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.msg-quote.static { cursor: default; white-space: pre-wrap; overflow-wrap: anywhere; }
+.msg-menu {
+  position: absolute; right: 8px; top: -12px; display: none; gap: 2px; background: var(--bg);
+  border: 1px solid var(--border); border-radius: 6px; padding: 2px; box-shadow: 0 2px 8px rgb(0 0 0 / 0.08);
+}
+.msg:hover .msg-menu, .msg:focus-within .msg-menu { display: flex; }
+.msg-failed { font-size: 0.85em; color: var(--danger); margin-top: 2px; }
+.new-messages {
+  position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); z-index: 5;
+  font: inherit; border: 0; border-radius: 999px; padding: 6px 14px; cursor: pointer;
+  background: var(--accent); color: #fff; box-shadow: 0 4px 12px rgb(0 0 0 / 0.18);
+}
+.typing-line { min-height: 1.4em; padding: 0 16px; font-size: 0.85em; color: var(--muted); font-style: italic; }
+.composer { border-top: 1px solid var(--border); padding: 8px 12px 10px; }
+.composer-context {
+  display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 0.88em;
+  padding: 2px 4px 6px; border-left: 3px solid var(--accent); padding-left: 8px; margin-bottom: 6px;
+  overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+}
+.composer-row { display: flex; gap: 6px; align-items: flex-end; }
+.composer-input {
+  flex: 1; font: inherit; line-height: 1.4; resize: none; padding: 8px 10px; border: 1px solid var(--border);
+  border-radius: 8px; background: var(--bg); color: var(--fg); min-height: 38px; overflow-y: auto;
+}
+.composer-input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.composer-icon { padding: 6px 8px; font-size: 1.15em; }
+.byte-counter { font-size: 0.8em; color: var(--muted); text-align: right; margin-top: 4px; }
+.byte-counter.over { color: var(--danger); font-weight: 600; }
+.emoji-anchor { position: relative; }
+.emoji-popover { position: absolute; bottom: calc(100% + 6px); left: 0; z-index: 20; }
+.emoji-loading { padding: 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; }
+.composer-frozen { border-top: 1px solid var(--border); padding: 14px 16px; color: var(--muted); }
+.search-panel {
+  border-bottom: 1px solid var(--border); padding: 8px 12px; max-height: 45%; overflow-y: auto; background: var(--surface);
+}
+.search-panel-top { display: flex; gap: 6px; }
+.search-panel-top input {
+  flex: 1; font: inherit; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--bg); color: var(--fg);
+}
+.search-results { list-style: none; margin: 6px 0 0; padding: 0; }
+.search-hit {
+  display: flex; flex-direction: column; align-items: flex-start; width: 100%; text-align: left; font: inherit;
+  background: none; border: 0; border-radius: 6px; padding: 6px 8px; cursor: pointer; color: var(--fg);
+}
+.search-hit:hover { background: var(--bg); }
+.search-hit-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
