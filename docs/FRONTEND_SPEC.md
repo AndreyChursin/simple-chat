@@ -122,6 +122,8 @@
 
 ### 4.6. Модальное окно `Manage Room` (admin/owner)
 
+Этап 3 реализует вкладки `[Invitations]` и `[Settings]`; `[Members]`, `[Admins]`, `[Banned users]` добавляются на этапе 8 (модерация).
+
 | Вкладка | Содержимое и действия | Кто видит/может |
 |---|---|---|
 | `[Members]` | Таблица: user, presence, role, joined_at; поиск. Действие `Remove (ban)` с подтверждением «Removing a member bans them until unbanned» и опциональной причиной | admin, owner (owner — неуязвим, кнопки скрыты) |

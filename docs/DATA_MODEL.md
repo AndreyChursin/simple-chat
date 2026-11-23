@@ -233,7 +233,7 @@ CHECK `num_nonnulls(room_id, dm_id) = 1`.
 
 CHECK `num_nonnulls(room_id, dm_id) = 1`; UNIQUE `(user_id, room_id) WHERE room_id IS NOT NULL`; UNIQUE `(user_id, dm_id) WHERE dm_id IS NOT NULL`.
 - `mark_read` — `UPDATE ... SET last_read_message_id = GREATEST(last_read_message_id, :id)` (монотонно).
-- При вступлении в комнату создаётся с `last_read_message_id = max(id)` комнаты (старая история не считается непрочитанной).
+- При вступлении в комнату создаётся с `last_read_message_id = max(id)` комнаты (старая история не считается непрочитанной). До этапа 4 (таблицы `messages` ещё нет) — `0`.
 - При выходе/бане строка удаляется.
 
 Подсчёт непрочитанного (ограничен 100 → UI «99+»), использует `ix_messages_room_id`:
@@ -300,5 +300,5 @@ FROM chat_read_states crs WHERE crs.user_id = :user_id AND crs.room_id IS NOT NU
 | Revoke сессии / Sign out | строка `user_sessions` | всё остальное |
 
 ## 4. Миграции
-- `0001_extensions` (citext, pg_trgm; ENUM-типы создаются в миграциях своих таблиц), `0002_users_sessions`, `0003_rooms`, `0004_messages_attachments`, `0005_contacts_dms`, `0006_read_states` — нарезка по этапам roadmap; триггеры (`users_username_immutable`, `room_owner_is_admin_member`) — в миграциях как raw SQL.
+- `0001_extensions` (citext, pg_trgm; ENUM-типы создаются в миграциях своих таблиц), `0002_users_sessions`, `0003_rooms` (+ `chat_read_states` только с `room_id` и CHECK `num_nonnulls(room_id) = 1`), `0004_messages_attachments`, `0005_contacts_dms` (добавляет `chat_read_states.dm_id`, FK, partial UNIQUE и расширяет CHECK до `num_nonnulls(room_id, dm_id) = 1`) — нарезка по этапам roadmap; триггеры (`users_username_immutable`, `room_owner_is_admin_member`) — в миграциях как raw SQL.
 - Seed-данных нет. Тестовая БД `chat_test` создаётся `db/init/01-create-test-db.sql` (с расширениями), схема накатывается фикстурой pytest через `alembic upgrade head`, каждый тест — в транзакции с откатом / `TRUNCATE ... RESTART IDENTITY CASCADE`.

@@ -32,10 +32,10 @@
 
 ## Этап 3 — Комнаты: создание, каталог, вход/выход, приватные и приглашения
 **Scope:** `rooms`, `room_members`, `room_invitations`, `chat_read_states` (создание при join); CRUD комнаты, каталог с поиском, join/leave, приглашения (создание/accept/decline/revoke), удаление комнаты (пока без файлов); Main Chat Layout (nav sidebar с аккордеоном expanded/compact, пустая центральная зона, context panel с участниками), Create room, Public Rooms Catalog, Private Rooms + Invitations.
-- [ ] Уникальное имя комнаты (`409`), public видны в каталоге с описанием и числом участников, поиск работает.
-- [ ] Private комнаты не видны в каталоге и `404` для не-участников; вход только по приглашению.
-- [ ] Owner не может выйти (`400 owner_cannot_leave`), может удалить комнату.
-- [ ] Layout: без открытого чата — nav expanded, ctx скрыт; в комнате — nav compact accordion, справа участники.
+- [x] Уникальное имя комнаты (`409`), public видны в каталоге с описанием и числом участников, поиск работает.
+- [x] Private комнаты не видны в каталоге и `404` для не-участников; вход только по приглашению.
+- [x] Owner не может выйти (`400 owner_cannot_leave`), может удалить комнату.
+- [x] Layout: без открытого чата — nav expanded, ctx скрыт; в комнате — nav compact accordion, справа участники.
 
 **Commit:** `feat(rooms): rooms, catalog, membership, invitations` → `/clear`
 

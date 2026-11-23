@@ -14,7 +14,14 @@ export const apiError = (status: number, code: string, message = code): Response
   json({ error: { code, message, details: {} } }, status);
 
 /** Stubs fetch with handlers keyed by "METHOD /api/path". Unknown routes fail the test loudly. */
-export function mockApi(routes: Record<string, Handler>) {
+/** Requests every signed-in screen makes (top menu badge, nav sidebar); tests may override them. */
+export const DEFAULT_ROUTES: Record<string, Handler> = {
+  'GET /api/invitations': () => json({ items: [] }),
+  'GET /api/rooms/mine': () => json({ public: [], private: [] }),
+};
+
+export function mockApi(overrides: Record<string, Handler>) {
+  const routes = { ...DEFAULT_ROUTES, ...overrides };
   const calls: { key: string; init: RequestInit | undefined }[] = [];
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const key = `${(init?.method ?? 'GET').toUpperCase()} ${String(input)}`;

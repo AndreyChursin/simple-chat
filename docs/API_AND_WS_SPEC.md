@@ -16,7 +16,7 @@
 | 401 | Нет/просрочена/отозвана сессия; неверный логин | `not_authenticated`, `invalid_credentials`, `invalid_current_password` |
 | 403 | Аутентифицирован, но нет прав / запрещено правилом | `forbidden`, `not_room_admin`, `not_room_owner`, `cannot_modify_owner`, `room_banned`, `user_banned`, `dm_frozen`, `not_friends`, `origin_mismatch` |
 | 404 | Не существует **или** скрыто (приватная комната для не-участника, чужое вложение) | `not_found`, `room_not_found`, `user_not_found`, `message_not_found`, `attachment_not_found` |
-| 409 | Конфликт состояния/уникальности | `email_taken`, `username_taken`, `room_name_taken`, `already_member`, `already_friends`, `friend_request_exists`, `invitation_exists`, `already_banned`, `user_is_banned_in_room` |
+| 409 | Конфликт состояния/уникальности | `email_taken`, `username_taken`, `room_name_taken`, `already_member`, `already_friends`, `friend_request_exists`, `invitation_exists`, `invitation_not_pending`, `already_banned`, `user_is_banned_in_room` |
 | 410 | Токен сброса пароля использован/просрочен | `reset_token_invalid` |
 | 413 | Превышен лимит | `message_too_large` (>3072 байт), `image_too_large` (>3 МБ), `file_too_large` (>20 МБ), `too_many_attachments` (>10) |
 | 429 | Rate limit | `rate_limited` (+ заголовок `Retry-After`) |
@@ -33,7 +33,7 @@ Message      = { id, chat: ChatRef, author: UserPublic, content: string, created
                  deleted: boolean, reply_to: null | { id, author: UserPublic, excerpt: string, deleted: boolean },
                  attachments: Attachment[], client_msg_id: string|null }
 RoomSummary  = { id, name, description, visibility, member_count, owner: UserPublic,
-                 my_role: "owner"|"admin"|"member"|null, unread: number }
+                 my_role: "owner"|"admin"|"member"|null, unread: number, created_at }
 Page<T>      = { items: T[], has_more: boolean, next_cursor: number|null }
 ```
 
@@ -90,28 +90,28 @@ Page<T>      = { items: T[], has_more: boolean, next_cursor: number|null }
 
 | Метод и путь | Тело/параметры | Ответ | Ошибки |
 |---|---|---|---|
-| `GET /api/rooms/catalog?search=&cursor=&limit=30` | `search` по name/description (ILIKE, trgm) | `200 Page<RoomSummary>` — **только public**, сортировка `member_count DESC, id`; поле `is_banned` для текущего пользователя | — |
+| `GET /api/rooms/catalog?search=&cursor=&limit=30` | `search` по name/description (ILIKE, trgm) | `200 Page<RoomSummary + {is_banned}>` — **только public**, сортировка `member_count DESC, id`; `is_banned` — для текущего пользователя. `cursor` = `next_cursor` = id последней комнаты страницы (keyset по её текущему `member_count`; если она удалена — пустая страница) | `400` |
 | `GET /api/rooms/mine` | — | `200 {public: RoomSummary[], private: RoomSummary[]}` (с `unread`) | — |
 | `POST /api/rooms` | `{name, description?, visibility}` | `201 RoomSummary` (создатель = owner + admin + member) | `400`, `409 room_name_taken` |
-| `GET /api/rooms/{id}` | — | `200 RoomSummary + {admins: UserPublic[], created_at}` | `404` (не существует или private и я не участник); `403 room_banned` для public при бане |
-| `PATCH /api/rooms/{id}` | `{name?, description?, visibility?}` | `200`; всем участникам `room_updated` | `403 not_room_owner`, `409 room_name_taken` |
+| `GET /api/rooms/{id}` | — | `200 RoomSummary + {admins: UserPublic[]}` (admins включают owner, он первый). Для не-участника public-комнаты — `my_role: null` (превью + кнопка Join) | `404 room_not_found` (не существует или private и я не участник); `403 room_banned` для public при бане |
+| `PATCH /api/rooms/{id}` | `{name?, description?, visibility?}` | `200 RoomSummary`; всем участникам `room_updated` | `403 not_room_owner` (в т.ч. admin и не-участник public), `404` (private, не участник), `409 room_name_taken`, `400` |
 | `DELETE /api/rooms/{id}` | — | `204`; каскад DATA_MODEL.md §3.1 | `403 not_room_owner`, `404` |
 | `POST /api/rooms/{id}/join` | — | `200 RoomSummary` (только public; для private — только через приглашение) | `404` (private/нет), `403 room_banned`, `409 already_member` |
-| `POST /api/rooms/{id}/leave` | — | `204`; мне `room_access_revoked{reason:"left"}` (во все вкладки) | `400 owner_cannot_leave`, `404` (не участник) |
-| `GET /api/rooms/{id}/members?cursor=&limit=200&search=` | — | `200 Page<UserPublic + {role, joined_at}>` — owner, затем admins, затем members; внутри: online → AFK → offline, затем username | `403`/`404` если не участник |
+| `POST /api/rooms/{id}/leave` | — | `204`; мне `room_access_revoked{reason:"left"}` (во все вкладки) | `400 owner_cannot_leave`, `404 room_not_found` (не участник) |
+| `GET /api/rooms/{id}/members?cursor=&limit=200&search=` | — | `200 Page<UserPublic + {role, joined_at}>` — owner, затем admins, затем members; внутри: online → AFK → offline, затем username. Сортировка — на сервере в памяти (presence не в БД); `cursor` = `next_cursor` = user_id последнего элемента; `search` — подстрока username; `limit` ≤ 1000 | `403 forbidden` (public, не участник), `403 room_banned`, `404` (private, не участник) |
 
 ## 6. Invitations
 
 | Метод и путь | Тело | Ответ | Ошибки |
 |---|---|---|---|
-| `POST /api/rooms/{id}/invitations` | `{username}` | `201 {invitation}`; приглашённому `invitation_received` | `403` (не участник), `404 user_not_found`, `409 already_member`, `409 invitation_exists`, `409 user_is_banned_in_room` (сначала разбанить), `403 user_banned` (личный бан между пригласившим и приглашаемым) |
+| `POST /api/rooms/{id}/invitations` | `{username}` | `201 {invitation: {id, room: {id, name, description, visibility, member_count}, invitee: UserPublic, inviter: UserPublic, created_at}}`; приглашённому `invitation_received` | `403 forbidden` (не участник public-комнаты; для private — `404`), `404 user_not_found`, `409 already_member`, `409 invitation_exists`, `409 user_is_banned_in_room` (сначала разбанить), `403 user_banned` (личный бан между пригласившим и приглашаемым; проверка появляется на этапе 6 вместе с `user_bans`) |
 | `GET /api/invitations` | — | `200 {items: [{id, room: {id, name, description, visibility, member_count}, inviter: UserPublic, created_at}]}` — мои pending | — |
-| `POST /api/invitations/{id}/accept` | — | `200 RoomSummary` | `404`, `409` (не pending), `403 room_banned` (если забанили после приглашения) |
-| `POST /api/invitations/{id}/decline` | — | `204` | `404` |
+| `POST /api/invitations/{id}/accept` | — | `200 RoomSummary` (если уже участник — приглашение просто помечается `accepted`) | `404` (нет или не моё), `409 invitation_not_pending`, `403 room_banned` (если забанили после приглашения) |
+| `POST /api/invitations/{id}/decline` | — | `204` | `404` (нет, не моё или уже не pending) |
 | `GET /api/rooms/{id}/invitations` | — | `200 {items: [{id, invitee, inviter, created_at}]}` — pending | `403 not_room_admin` |
 | `DELETE /api/rooms/{id}/invitations/{inv_id}` | — | `204` (статус `revoked`) | `403 not_room_admin`, `404` |
 
-Правило: приглашать может любой участник комнаты (кнопка `Invite user` в правой панели); просмотр и отзыв pending-приглашений — admin/owner.
+Правило: приглашать может любой участник комнаты (кнопка `Invite user` в правой панели); просмотр и отзыв pending-приглашений — admin/owner. Приглашать можно и в public-комнату. Вступление в комнату любым путём (join/accept) помечает pending-приглашения этого пользователя в эту комнату как `accepted`.
 
 ## 7. Moderation (roles, room bans)
 
@@ -235,7 +235,7 @@ Page<T>      = { items: T[], has_more: boolean, next_cursor: number|null }
 // комнаты
 { "type": "room_access_revoked", "room_id": 12, "reason": "banned" | "left" | "room_deleted" }
 { "type": "room_joined", "room": { /* RoomSummary */ } }            // мне, во все вкладки (join/accept invite/create)
-{ "type": "room_updated", "room": { /* RoomSummary */ } }
+{ "type": "room_updated", "room": { /* RoomSummary, my_role — роль получателя */ } }
 { "type": "member_joined", "room_id": 12, "user": { /* UserPublic */ }, "member_count": 31 }
 { "type": "member_removed", "room_id": 12, "user_id": 7, "reason": "left" | "banned", "member_count": 30 }
 { "type": "member_role_changed", "room_id": 12, "user_id": 7, "role": "admin" | "member" }

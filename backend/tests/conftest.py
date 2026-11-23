@@ -8,6 +8,7 @@ import os
 import tempfile
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
 from pathlib import Path
+from typing import Any
 
 _TEST_DB_URL = os.environ.get("TEST_DATABASE_URL")
 if not _TEST_DB_URL:
@@ -32,6 +33,7 @@ from app.core import mail  # noqa: E402
 from app.core.ratelimit import rate_limiter  # noqa: E402
 from app.db.session import SessionLocal, engine  # noqa: E402
 from app.main import create_app  # noqa: E402
+from app.ws.manager import manager  # noqa: E402
 
 BACKEND_ROOT = Path(__file__).resolve().parent.parent
 
@@ -112,3 +114,15 @@ async def client(make_client: ClientFactory) -> httpx.AsyncClient:
 async def db() -> AsyncIterator[AsyncSession]:
     async with SessionLocal() as session:
         yield session
+
+
+@pytest.fixture
+def events(monkeypatch: pytest.MonkeyPatch) -> list[tuple[list[int], dict[str, Any]]]:
+    """Captures (recipient user ids, event) that services hand to the WebSocket manager after commit."""
+    captured: list[tuple[list[int], dict[str, Any]]] = []
+
+    async def send_to_users(user_ids: Any, event: dict[str, Any]) -> None:
+        captured.append((sorted(user_ids), event))
+
+    monkeypatch.setattr(manager, "send_to_users", send_to_users)
+    return captured

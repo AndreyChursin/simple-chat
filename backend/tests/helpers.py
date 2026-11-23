@@ -1,4 +1,12 @@
+from collections.abc import Awaitable, Callable
+from typing import Any
+
 import httpx
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
+
+# (recipient user ids, event) pairs handed to the WebSocket manager; see the `events` fixture.
+Events = list[tuple[list[int], dict[str, Any]]]
 
 PASSWORD = "correct-horse-1"
 
@@ -24,3 +32,40 @@ async def login(
 
 def error_code(resp: httpx.Response) -> str:
     return resp.json()["error"]["code"]  # type: ignore[no-any-return]
+
+
+async def create_room(
+    client: httpx.AsyncClient, name: str = "general", visibility: str = "public", description: str = ""
+) -> dict[str, object]:
+    resp = await client.post(
+        "/api/rooms", json={"name": name, "description": description, "visibility": visibility}
+    )
+    assert resp.status_code == 201, resp.text
+    return resp.json()  # type: ignore[no-any-return]
+
+
+async def user(make_client: Callable[..., Awaitable[httpx.AsyncClient]], name: str) -> httpx.AsyncClient:
+    """A new "browser" signed in as a freshly registered user."""
+    c = await make_client()
+    await register(c, name)
+    return c
+
+
+async def ban(db: AsyncSession, room_id: int, user_id: int, by: int | None = None) -> None:
+    """Room bans arrive with moderation (stage 8); tests insert them directly."""
+    await db.execute(
+        text("INSERT INTO room_bans (room_id, user_id, banned_by_id) VALUES (:r, :u, :b)"),
+        {"r": room_id, "u": user_id, "b": by},
+    )
+    await db.execute(
+        text("DELETE FROM room_members WHERE room_id = :r AND user_id = :u"), {"r": room_id, "u": user_id}
+    )
+    await db.commit()
+
+
+async def make_admin(db: AsyncSession, room_id: int, user_id: int) -> None:
+    await db.execute(
+        text("UPDATE room_members SET is_admin = true WHERE room_id = :r AND user_id = :u"),
+        {"r": room_id, "u": user_id},
+    )
+    await db.commit()

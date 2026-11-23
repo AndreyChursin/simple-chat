@@ -5,7 +5,8 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, StringConstraints
 
-from app.db.models import User
+from app.db.models import Room, RoomInvitation, RoomVisibility, User
+from app.services.access import RoomRole
 from app.services.presence import Presence, get_presence
 
 USERNAME_PATTERN = r"^[A-Za-z0-9_.-]{3,32}$"
@@ -82,3 +83,146 @@ class ResetPasswordRequest(StrictModel):
 class ChangePasswordRequest(StrictModel):
     current_password: str = Field(max_length=128)
     new_password: Password
+
+
+# --- rooms (docs/API_AND_WS_SPEC.md §5–6) ---------------------------------------------------------
+
+RoomName = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=3, max_length=64, pattern=r"^[^\x00-\x1f\x7f]+$"),
+]
+RoomDescription = Annotated[str, StringConstraints(strip_whitespace=True, max_length=1000)]
+
+
+class RoomSummary(BaseModel):
+    id: int
+    name: str
+    description: str
+    visibility: RoomVisibility
+    member_count: int
+    owner: UserPublic
+    my_role: RoomRole | None
+    unread: int = 0
+    created_at: datetime
+
+    @classmethod
+    def of(cls, room: Room, my_role: RoomRole | None, unread: int = 0) -> "RoomSummary":
+        return cls(
+            id=room.id,
+            name=room.name,
+            description=room.description,
+            visibility=room.visibility,
+            member_count=room.member_count,
+            owner=UserPublic.of(room.owner),
+            my_role=my_role,
+            unread=unread,
+            created_at=room.created_at,
+        )
+
+
+class CatalogRoom(RoomSummary):
+    is_banned: bool
+
+
+class RoomDetail(RoomSummary):
+    admins: list[UserPublic]
+
+
+class CatalogPage(BaseModel):
+    items: list[CatalogRoom]
+    has_more: bool
+    next_cursor: int | None
+
+
+class MyRooms(BaseModel):
+    public: list[RoomSummary]
+    private: list[RoomSummary]
+
+
+class RoomMemberOut(UserPublic):
+    role: RoomRole
+    joined_at: datetime
+
+
+class MemberPage(BaseModel):
+    items: list[RoomMemberOut]
+    has_more: bool
+    next_cursor: int | None
+
+
+class CreateRoomRequest(StrictModel):
+    name: RoomName
+    description: RoomDescription = ""
+    visibility: RoomVisibility
+
+
+class UpdateRoomRequest(StrictModel):
+    name: RoomName | None = None
+    description: RoomDescription | None = None
+    visibility: RoomVisibility | None = None
+
+
+class InviteRequest(StrictModel):
+    username: str = Field(min_length=1, max_length=32)
+
+
+class RoomBrief(BaseModel):
+    id: int
+    name: str
+    description: str
+    visibility: RoomVisibility
+    member_count: int
+
+    @classmethod
+    def of(cls, room: Room) -> "RoomBrief":
+        return cls(
+            id=room.id,
+            name=room.name,
+            description=room.description,
+            visibility=room.visibility,
+            member_count=room.member_count,
+        )
+
+
+class InvitationOut(BaseModel):
+    id: int
+    room: RoomBrief
+    invitee: UserPublic
+    inviter: UserPublic
+    created_at: datetime
+
+    @classmethod
+    def of(cls, inv: RoomInvitation) -> "InvitationOut":
+        return cls(
+            id=inv.id,
+            room=RoomBrief.of(inv.room),
+            invitee=UserPublic.of(inv.invitee),
+            inviter=UserPublic.of(inv.inviter),
+            created_at=inv.created_at,
+        )
+
+
+class InvitationResponse(BaseModel):
+    invitation: InvitationOut
+
+
+class MyInvitation(BaseModel):
+    id: int
+    room: RoomBrief
+    inviter: UserPublic
+    created_at: datetime
+
+
+class MyInvitations(BaseModel):
+    items: list[MyInvitation]
+
+
+class RoomInvitationItem(BaseModel):
+    id: int
+    invitee: UserPublic
+    inviter: UserPublic
+    created_at: datetime
+
+
+class RoomInvitations(BaseModel):
+    items: list[RoomInvitationItem]
