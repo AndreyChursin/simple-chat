@@ -113,7 +113,8 @@ async def make_client(app) -> AsyncIterator[ClientFactory]:  # type: ignore[no-u
         c = httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app),
             base_url="http://testserver",
-            headers={"User-Agent": user_agent},
+            # Like a browser on the app's own page: unsafe requests need the Origin header.
+            headers={"User-Agent": user_agent, "Origin": "http://testserver"},
         )
         clients.append(c)
         return c

@@ -108,8 +108,15 @@ async def store(tmp_path: Path, stored_path: str) -> None:
     target = absolute(stored_path)
 
     def _move() -> None:
-        target.parent.mkdir(parents=True, exist_ok=True)
-        os.replace(tmp_path, target)
+        for attempt in range(2):
+            target.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                os.replace(tmp_path, target)
+                return
+            except FileNotFoundError:
+                # the GC removed the (empty, old) month directory between mkdir and replace
+                if attempt or not tmp_path.exists():
+                    raise
 
     await anyio.to_thread.run_sync(_move)
 
@@ -156,12 +163,21 @@ async def remove_dm_dir(dm_id: int) -> None:
 # --- garbage collection -------------------------------------------------------------------------------
 
 
+def _newest_mtime(path: Path) -> float:
+    newest = path.stat().st_mtime
+    for p in path.rglob("*"):
+        newest = max(newest, p.stat().st_mtime)
+    return newest
+
+
 async def collect_garbage(db: AsyncSession, *, now: datetime | None = None) -> dict[str, int]:
     """Hourly + at start (docs/ARCHITECTURE.md §5.4):
     1) pending attachments older than 24 h (row + file);
     2) files on disk without a row, older than 1 h (a crash between commit and unlink);
     3) `tmp/*.part` older than 1 h;
-    4) directories of rooms / DMs that no longer exist."""
+    4) directories of rooms / DMs that no longer exist — only when nothing in them changed for 1 h, so
+       a chat created (and uploaded to) after the id snapshot below is never touched;
+    5) empty `yyyy/mm` directories older than 1 h."""
     now = now or datetime.now(UTC)
     stale = list(
         await db.scalars(
@@ -180,21 +196,29 @@ async def collect_garbage(db: AsyncSession, *, now: datetime | None = None) -> d
     cutoff = time.time() - ORPHAN_MIN_AGE_SECONDS
 
     def _sweep() -> dict[str, int]:
-        counts = {"orphans": 0, "parts": 0, "chat_dirs": 0}
+        counts = {"orphans": 0, "parts": 0, "chat_dirs": 0, "empty_dirs": 0}
         for kind, alive in (("rooms", rooms), ("dms", dms)):
             top = base / kind
             if not top.is_dir():
                 continue
             for chat in top.iterdir():
                 if chat.name not in alive:
-                    shutil.rmtree(chat, ignore_errors=True)
-                    counts["chat_dirs"] += 1
+                    if _newest_mtime(chat) < cutoff:
+                        shutil.rmtree(chat, ignore_errors=True)
+                        counts["chat_dirs"] += 1
                     continue
+                # mtimes before this sweep touches anything (removing a child bumps its parent's)
+                dir_mtimes = {p: p.stat().st_mtime for p in chat.rglob("*") if p.is_dir()}
                 for path in chat.rglob("*"):
                     orphan = path.is_file() and path.relative_to(base).as_posix() not in known
                     if orphan and path.stat().st_mtime < cutoff:
                         path.unlink(missing_ok=True)
                         counts["orphans"] += 1
+                # deepest first, so an emptied month can empty its year
+                for path in sorted(dir_mtimes, key=lambda p: len(p.parts), reverse=True):
+                    if not any(path.iterdir()) and dir_mtimes[path] < cutoff:
+                        path.rmdir()
+                        counts["empty_dirs"] += 1
         tmp = base / "tmp"
         if tmp.is_dir():
             for part in tmp.glob("*.part"):

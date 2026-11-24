@@ -4,7 +4,7 @@ import { Link, NavLink, useNavigate } from 'react-router-dom';
 import { contactKeys, fetchContacts } from '../api/contacts';
 import { fetchMyRooms, roomKeys, type RoomSummary } from '../api/rooms';
 import { UserPresence } from '../components/Presence';
-import { totalUnread, useUnread } from '../stores/unread';
+import { useUnread } from '../stores/unread';
 import { CreateRoomModal } from '../rooms/CreateRoomModal';
 import { useNavAccordion, type NavSection } from './navAccordion';
 
@@ -79,18 +79,36 @@ export function NavSidebar({ active }: { active: ActiveChat | null }) {
 
   const creationModal = creating && <CreateRoomModal onClose={() => setCreating(false)} />;
 
+  // Per-section sums (live counters over the REST snapshot), unfiltered by the search box.
+  const sectionUnread: Record<NavSection, number> = {
+    public: publicRooms.reduce((sum, r) => sum + roomUnread(r), 0),
+    private: privateRooms.reduce((sum, r) => sum + roomUnread(r), 0),
+    contacts:
+      (contacts.data?.friends ?? []).reduce((sum, f) => sum + dmUnread(f.dm_id, f.unread), 0) +
+      (contacts.data?.past_dms ?? []).reduce((sum, d) => sum + dmUnread(d.dm_id, d.unread), 0),
+  };
+
   if (collapsed) {
+    const ICONS: Record<NavSection, string> = { public: '🌐', private: '🔒', contacts: '👥' };
     return (
       <nav className="nav-sidebar collapsed" aria-label="Chats">
         <button className="btn ghost small" aria-label="Expand navigation" onClick={() => setCollapsedPersist(false)}>
           »
         </button>
+        {(['public', 'private', 'contacts'] as NavSection[]).map((section) => (
+          <button key={section} className="btn ghost small nav-icon" title={TITLES[section]}
+            aria-label={`${TITLES[section]}${sectionUnread[section] ? `, ${unreadBadge(sectionUnread[section])} unread` : ''}`}
+            onClick={() => {
+              setCollapsedPersist(false);
+              if (!isOpen(section)) toggle(section);
+            }}>
+            <span aria-hidden>{ICONS[section]}</span>
+            {sectionUnread[section] > 0 && <span className="badge">{unreadBadge(sectionUnread[section])}</span>}
+          </button>
+        ))}
         <button className="btn ghost small" aria-label="Create room" title="Create room" onClick={() => setCreating(true)}>
           ＋
         </button>
-        {totalUnread(live) > 0 && (
-          <span className="badge" title="Unread messages">{unreadBadge(totalUnread(live))}</span>
-        )}
         {creationModal}
       </nav>
     );

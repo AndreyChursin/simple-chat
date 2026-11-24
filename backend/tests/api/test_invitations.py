@@ -50,7 +50,11 @@ async def test_invite_accept_private_room(
     resp = await bob.post(f"/api/invitations/{inv['id']}/accept")
     assert resp.status_code == 200
     assert resp.json()["my_role"] == "member" and resp.json()["member_count"] == 2
-    assert [(u, e["type"]) for u, e in events] == [([2], "room_joined"), ([1], "member_joined")]
+    assert [(u, e["type"]) for u, e in events] == [
+        ([2], "room_joined"),
+        ([2], "unread_update"),
+        ([1], "member_joined"),
+    ]
     assert (await bob.get(f"/api/rooms/{rid}")).status_code == 200
     assert (await bob.get("/api/invitations")).json()["items"] == []
     assert [r["name"] for r in (await bob.get("/api/rooms/mine")).json()["private"]] == ["vault"]
@@ -102,6 +106,14 @@ async def test_accept_after_ban_is_forbidden(make_client: ClientFactory, db: Asy
     ]
     await ban(db, room["id"], 2, by=1)
     resp = await bob.post(f"/api/invitations/{inv['id']}/accept")
+    assert resp.status_code == 403 and error_code(resp) == "room_banned"
+    # the same through the moderation API (which also revokes the invitation)
+    carol = await user(make_client, "carol")
+    inv2 = (await alice.post(f"/api/rooms/{room['id']}/invitations", json={"username": "carol"})).json()[
+        "invitation"
+    ]
+    assert (await alice.post(f"/api/rooms/{room['id']}/bans", json={"user_id": 3})).status_code == 201
+    resp = await carol.post(f"/api/invitations/{inv2['id']}/accept")
     assert resp.status_code == 403 and error_code(resp) == "room_banned"
 
 

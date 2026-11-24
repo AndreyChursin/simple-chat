@@ -59,7 +59,7 @@ services:
 
   mailpit:
     image: axllent/mailpit:v1.21
-    ports: ["8025:8025"]                              # SMTP 1025 только внутри сети
+    ports: ["${MAILPIT_UI_PORT:-8025}:8025"]                            # SMTP 1025 только внутри сети
     restart: unless-stopped
 
   backend:
@@ -80,7 +80,7 @@ services:
     # CMD задан в backend/Dockerfile:
     # ["sh", "-c", "alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1 --proxy-headers --forwarded-allow-ips='*' --ws-ping-interval 20 --ws-ping-timeout 20 --ws-max-size 16384 --ws-per-message-deflate false"]
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health', timeout=2)"]
       interval: 5s
       timeout: 3s
       retries: 20
@@ -132,7 +132,7 @@ api/ (FastAPI routers: парсинг, Pydantic-схемы, коды ответ�
 ws/handlers.py (входящие WS-события) ──▶ те же services/
 ```
 
-- **Правило «события после commit»:** сервис собирает список событий в `UnitOfWork.events`, после успешного `commit()` они передаются в `ws.manager.publish(...)`. Откат транзакции → событий нет.
+- **Правило «события после commit»:** каждая изменяющая функция сервиса сама делает `commit()` и только после него вызывает `manager.publish(...)` / `send_to_users(...)` (отдельного `UnitOfWork` нет). Исключение или откат до commit → событий нет.
 - `services/access.py` — единственное место проверок: `require_room_member`, `require_room_admin`, `require_room_owner`, `require_dm_writable`, `require_attachment_readable`, `is_user_banned_between(a, b)`.
 
 ## 4. WebSocket-менеджер и presence
@@ -257,7 +257,7 @@ client A ──send_message(WS) или POST /messages──▶ services.messages
 | Удаление комнаты | Транзакция `DELETE FROM rooms` (каскад в БД); после commit — `shutil.rmtree(/data/uploads/rooms/{id})` в `to_thread` |
 | Удаление аккаунта | Для каждой комнаты, где user — owner: как «удаление комнаты». Файлы пользователя в чужих комнатах **не трогаются** |
 | Выход/бан из комнаты | Файлы **не трогаются** |
-| GC (раз в час + при старте) | 1) удалить pending-вложения старше 24 ч (строка + файл); 2) обойти дерево и удалить файлы без строки в БД старше 1 ч (защита от падения между commit и unlink); 3) удалить `tmp/*.part` старше 1 ч; 4) удалить пустые каталоги комнат, которых нет в БД |
+| GC (раз в час + при старте) | 1) удалить pending-вложения старше 24 ч (строка + файл); 2) обойти дерево и удалить файлы без строки в БД старше 1 ч (защита от падения между commit и unlink); 3) удалить `tmp/*.part` старше 1 ч; 4) удалить каталоги комнат и DM, которых нет в БД, — только если в них ничего не менялось 1 ч (новый чат, созданный после снимка id, не трогается); 5) удалить пустые каталоги `yyyy/mm` старше 1 ч (перемещение файла повторяет `mkdir`, если GC успел удалить каталог) |
 
 Ошибки `unlink` логируются и не откатывают удаление в БД — повторно подберёт GC.
 
@@ -268,9 +268,9 @@ client A ──send_message(WS) или POST /messages──▶ services.messages
 - На каждый запрос: поиск сессии по хешу, проверка `expires_at`; не чаще 1 раза в минуту — обновление `last_seen_at`, `ip` и скользящее продление `expires_at = now + TTL` (30 дн. / 24 ч).
 - IP: nginx **перезаписывает** `X-Forwarded-For` значением `$remote_addr` (клиент не может подделать IP на экране Sessions), uvicorn `--proxy-headers` кладёт его в `request.client`.
 - Хеширование Argon2id выполняется в worker-потоке (`anyio.to_thread`), чтобы не блокировать event loop; для неизвестного email выполняется фиктивная проверка (одинаковое время ответа).
-- CSRF: SameSite=Lax + проверка `Origin` для POST/PUT/PATCH/DELETE и WS.
+- CSRF: SameSite=Lax + проверка `Origin` для POST/PUT/PATCH/DELETE и WS: заголовок обязателен и должен входить в `APP_ORIGIN` (отсутствующий тоже отклоняется).
 - Rate limit (in-memory): login 10/мин на IP+email, forgot-password 3/час на email и 20/час на IP → `429`.
 
 ## 7. Наблюдаемость
-- Структурированные JSON-логи (request id, user id, latency).
-- `GET /api/health`; метрики в логах раз в минуту: число соединений, online/AFK пользователей, p95 задержки fan-out.
+- Структурированные JSON-логи (`app/core/logging.py`): одна JSON-строка на запись (`ts`, `level`, `logger`, `msg`, `request_id`, `user_id`, поля `extra`); на каждый HTTP-запрос строка `request` с `method`, `path`, `status`, `latency_ms` (healthcheck — на уровне DEBUG); `X-Request-ID` в ответе. Access-лог uvicorn отключён.
+- `GET /api/health`; метрики в логах раз в минуту (`app.metrics`): `connections`, `users_online`, `users_afk`, `frames_sent`, `fanout_p95_ms` — p95 задержки от постановки кадра в очередь соединения до записи в сокет.

@@ -111,7 +111,7 @@ describe('composer', () => {
 
   it('shows the reply target, cancels with Esc, edits the last message with ↑', () => {
     const { input, onCancel, onEditLast } = renderComposer({ replyTo: msg(5, { content: 'original text' }) });
-    expect(screen.getByText(/Replying to/)).toHaveTextContent('Replying to bob — original text');
+    expect(screen.getByText(/Replying to/)).toHaveTextContent('Replying to: bob — original text');
     fireEvent.keyDown(input, { key: 'Escape' });
     expect(onCancel).toHaveBeenCalled();
     fireEvent.keyDown(input, { key: 'ArrowUp' });

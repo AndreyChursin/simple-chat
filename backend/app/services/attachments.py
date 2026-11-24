@@ -70,8 +70,7 @@ async def _own_pending(db: AsyncSession, attachment_id: int, user: User) -> Atta
     if attachment is None:
         raise not_found()
     await access.require_attachment_readable(db, attachment, user.id)
-    if attachment.uploader_id != user.id:
-        raise AppError(403, "forbidden", "Only the uploader can change this attachment")
+    access.require_attachment_uploader(attachment, user.id)
     if attachment.message_id is not None:
         raise AppError(409, "attachment_already_sent", "This attachment is already part of a message")
     return attachment

@@ -35,7 +35,7 @@ class SendMessage(_Event):
     client_msg_id: uuid.UUID | None = None
     content: str = ""
     reply_to_message_id: int | None = None
-    attachment_ids: list[int] = Field(default_factory=list, max_length=100)
+    attachment_ids: list[int] = Field(default_factory=list, max_length=1000)  # > 10 → too_many_attachments
 
 
 class MarkRead(_Event):

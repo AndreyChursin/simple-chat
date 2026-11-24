@@ -1,7 +1,18 @@
 from datetime import datetime
 from enum import StrEnum
 
-from sqlalchemy import BigInteger, CheckConstraint, DateTime, Enum, ForeignKey, Index, String, func, text
+from sqlalchemy import (
+    BigInteger,
+    CheckConstraint,
+    DateTime,
+    Enum,
+    ForeignKey,
+    Identity,
+    Index,
+    String,
+    func,
+    text,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -30,7 +41,7 @@ class Friendship(Base):
         Index("ix_friendships_requester_status", "requester_id", "status"),
     )
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
     requester_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"))
     addressee_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"))
     status: Mapped[FriendshipStatus] = mapped_column(
@@ -80,7 +91,7 @@ class DirectConversation(Base):
         Index("ix_direct_conversations_user_b_id", "user_b_id"),
     )
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
     # NULL once that user deleted their account; the DM stays (frozen) for the other side.
     user_a_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="SET NULL"))
     user_b_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="SET NULL"))

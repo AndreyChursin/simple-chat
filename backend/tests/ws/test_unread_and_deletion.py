@@ -1,6 +1,9 @@
 """mark_read over WS syncs every tab; deleting an account closes every tab and goes offline at once."""
 
+import asyncio
+import contextlib
 import json
+import time
 
 from tests.conftest import ClientFactory
 from tests.helpers import PASSWORD, befriend, create_room, login, send, user
@@ -53,8 +56,20 @@ async def test_deleted_account_tabs_close_and_peers_see_offline(
     assert resp.status_code == 204
     for ws in (a1, a2):
         assert await close_code(ws) == 4001
-    offline = await recv_type(b, "presence_update", wait=1.0)  # no grace period for a deleted account
-    assert offline == {"type": "presence_update", "user_id": 1, "presence": "offline"}
-    frozen = await recv_type(b, "dm_frozen")
+    # exactly one presence change, offline, without the 1 s grace period and without a flicker back to
+    # online while the two tabs close one after the other
+    seen: list[dict[str, object]] = []
+    frozen: dict[str, object] | None = None
+    start = time.monotonic()
+    with contextlib.suppress(TimeoutError):
+        async with asyncio.timeout(1.5):
+            while True:
+                event = json.loads(await b.recv())
+                if event["type"] == "presence_update":
+                    seen.append({**event, "after": time.monotonic() - start})
+                elif event["type"] == "dm_frozen":
+                    frozen = event
+    assert [(e["user_id"], e["presence"]) for e in seen] == [(1, "offline")]
+    assert float(seen[0]["after"]) < 0.9  # type: ignore[arg-type]
     assert frozen == {"type": "dm_frozen", "dm_id": dm_id, "reason": "user_deleted"}
     await b.close()

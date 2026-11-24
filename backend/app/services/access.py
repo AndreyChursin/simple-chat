@@ -19,11 +19,13 @@ from app.db.models import (
     DirectConversation,
     Friendship,
     FriendshipStatus,
+    Message,
     Room,
     RoomBan,
     RoomMember,
     RoomVisibility,
     UserBan,
+    UserSession,
 )
 
 RoomRole = Literal["owner", "admin", "member"]
@@ -255,3 +257,32 @@ async def require_attachment_readable(db: AsyncSession, attachment: Attachment, 
     dm = await db.get(DirectConversation, attachment.dm_id)
     if dm is None or not dm.has_side(user_id):
         raise not_found
+
+
+# --- messages, attachments, sessions ----------------------------------------------------------------
+
+
+def require_message_author(message: Message, user_id: int) -> None:
+    """Editing: the author only (in rooms and DMs alike)."""
+    if message.author_id != user_id:
+        raise AppError(403, "not_message_author", "Only the author can edit a message")
+
+
+def require_message_deletable(message: Message, chat: ChatAccess) -> None:
+    """Deleting: the author, or an admin/owner of the room (nobody moderates a DM)."""
+    if message.author_id != chat.user_id and not chat.can_moderate:
+        raise AppError(403, "forbidden", "You can only delete your own messages")
+
+
+def require_attachment_uploader(attachment: Attachment, user_id: int) -> None:
+    if attachment.uploader_id != user_id:
+        raise AppError(403, "forbidden", "Only the uploader can change this attachment")
+
+
+async def require_own_session(db: AsyncSession, session_id: int, user_id: int) -> None:
+    """Sessions of other users are invisible (404)."""
+    found = await db.scalar(
+        select(UserSession.id).where(UserSession.id == session_id, UserSession.user_id == user_id)
+    )
+    if found is None:
+        raise AppError(404, "not_found", "Session not found")

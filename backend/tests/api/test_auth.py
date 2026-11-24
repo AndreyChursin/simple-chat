@@ -135,3 +135,6 @@ async def test_username_immutable_in_database(client: httpx.AsyncClient, db: Asy
     with pytest.raises(DBAPIError, match="username is immutable"):
         await db.execute(text("UPDATE users SET username = 'mallory'"))
     await db.rollback()
+    with pytest.raises(DBAPIError, match="username is immutable"):  # citext: a case change too
+        await db.execute(text("UPDATE users SET username = 'ALICE'"))
+    await db.rollback()

@@ -251,7 +251,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
           ) : (
             replyTo && (
               <span>
-                Replying to <strong>{replyTo.author.username}</strong> —{' '}
+                Replying to: <strong>{replyTo.author.username}</strong> —{' '}
                 <span className="muted">{replyTo.content.slice(0, REPLY_PREVIEW_CHARS)}</span>
               </span>
             )
@@ -286,19 +286,6 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
         </ul>
       )}
       <div className="composer-row">
-        {!editing && (
-          <>
-            <button className="btn ghost composer-icon" aria-label="Attach files" title="Attach files"
-              onClick={() => fileInput.current?.click()} disabled={chips.length >= MAX_ATTACHMENTS}>
-              📎
-            </button>
-            <input ref={fileInput} type="file" multiple hidden data-testid="file-input"
-              onChange={(e) => {
-                addFiles(Array.from(e.target.files ?? []));
-                e.target.value = '';
-              }} />
-          </>
-        )}
         <div className="emoji-anchor">
           <button className="btn ghost composer-icon" aria-label="Insert emoji" aria-expanded={emojiOpen}
             onClick={() => setEmojiOpen(!emojiOpen)}>
@@ -312,6 +299,19 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
             </div>
           )}
         </div>
+        {!editing && (
+          <>
+            <button className="btn ghost composer-icon" aria-label="Attach files" title="Attach files"
+              onClick={() => fileInput.current?.click()} disabled={chips.length >= MAX_ATTACHMENTS}>
+              📎
+            </button>
+            <input ref={fileInput} type="file" multiple hidden data-testid="file-input"
+              onChange={(e) => {
+                addFiles(Array.from(e.target.files ?? []));
+                e.target.value = '';
+              }} />
+          </>
+        )}
         <textarea
           ref={area}
           className="composer-input"

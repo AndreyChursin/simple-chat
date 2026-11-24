@@ -41,6 +41,10 @@ Everything has defaults. To override, copy `.env.example` to `.env`, edit it and
 | `SESSION_TTL_DAYS` | `30` | Lifetime of "Keep me signed in" sessions |
 | `POSTGRES_DB` / `POSTGRES_USER` / `POSTGRES_PASSWORD` | `chat` | Applied when the `pgdata` volume is first created |
 
+**Scripts and other API clients** must send an `Origin` header from `APP_ORIGIN` with every
+POST/PATCH/DELETE (and the WebSocket handshake), e.g. `curl -H "Origin: http://localhost:8080" ...`;
+requests without it are refused with `403 origin_mismatch`.
+
 **Opening the app from other devices** (LAN): every origin the browser uses must be listed in
 `APP_ORIGIN`, e.g. `APP_ORIGIN=http://localhost:8080,http://192.168.1.20:8080`; requests and
 WebSockets from any other origin are refused. Under WSL2 the port also has to be forwarded from

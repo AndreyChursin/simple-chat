@@ -222,7 +222,7 @@ async def test_preventive_ban_and_invitations(
     status = await db.scalar(text("SELECT status FROM room_invitations WHERE id = :i"), {"i": inv["id"]})
     assert status == "revoked"
     resp = await bob.post(f"/api/invitations/{inv['id']}/accept")
-    assert resp.status_code == 409 and error_code(resp) == "invitation_not_pending"
+    assert resp.status_code == 403 and error_code(resp) == "room_banned"
     assert (await bob.get("/api/invitations")).json()["items"] == []
 
     # a non-member never learns about a private room

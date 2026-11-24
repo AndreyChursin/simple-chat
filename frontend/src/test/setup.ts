@@ -23,3 +23,12 @@ class FakeWebSocket {
   }
 }
 globalThis.WebSocket = FakeWebSocket as unknown as typeof WebSocket;
+
+/** jsdom lacks ResizeObserver (react-virtuoso with a custom scroll parent uses it). */
+if (!('ResizeObserver' in globalThis)) {
+  globalThis.ResizeObserver = class {
+    observe(): void {}
+    unobserve(): void {}
+    disconnect(): void {}
+  } as unknown as typeof ResizeObserver;
+}

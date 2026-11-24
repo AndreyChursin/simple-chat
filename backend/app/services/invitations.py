@@ -89,10 +89,11 @@ async def accept(db: AsyncSession, *, user: User, invitation_id: int) -> tuple[R
     acc = await access.load_room_access(db, invitation.room_id, user.id, for_update=True)
     assert acc is not None  # FK cascade: the invitation would be gone with the room
     await db.refresh(invitation, attribute_names=["status"])
-    if invitation.status != InvitationStatus.pending:
-        raise AppError(409, "invitation_not_pending", "This invitation is no longer pending")
+    # A ban revokes the user's invitations to the room; tell them why rather than "not pending".
     if acc.banned:
         raise access.room_banned()
+    if invitation.status != InvitationStatus.pending:
+        raise AppError(409, "invitation_not_pending", "This invitation is no longer pending")
     room = acc.room
     if acc.is_member:  # joined the public room meanwhile; just settle the invitation
         invitation.status = InvitationStatus.accepted

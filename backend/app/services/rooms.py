@@ -26,8 +26,8 @@ from app.db.models import (
     RoomVisibility,
     User,
 )
-from app.services import access, files
-from app.services.access import RoomAccess, RoomRole
+from app.services import access, files, unread
+from app.services.access import ChatRef, RoomAccess, RoomRole
 from app.services.presence import get_presence
 from app.ws.manager import manager
 
@@ -135,6 +135,17 @@ async def publish_joined(db: AsyncSession, room: Room, user: User, role: RoomRol
     await manager.send_to_users(
         [user.id], {"type": "room_joined", "room": RoomSummary.of(room, role).model_dump(mode="json")}
     )
+    # The new read cursor (history before joining counts as read) for every tab's counters.
+    for item in await unread.list_unread(db, user_id=user.id, chat=ChatRef("room", room.id)):
+        await manager.send_to_users(
+            [user.id],
+            {
+                "type": "unread_update",
+                "chat": {"type": "room", "id": room.id},
+                "unread": item.unread,
+                "last_read_message_id": item.last_read_message_id,
+            },
+        )
     others = [uid for uid in await member_ids(db, room.id) if uid != user.id]
     if not others:
         return
@@ -224,11 +235,21 @@ async def list_catalog(
 
 
 async def list_my_rooms(db: AsyncSession, *, user_id: int) -> list[tuple[Room, RoomRole]]:
+    # Most recently active first (FRONTEND_SPEC §4.2), then by name; the newest message id per room
+    # comes from ix_messages_room_id (one index probe per room).
+    last_message = (
+        select(Message.id)
+        .where(Message.room_id == Room.id)
+        .order_by(Message.id.desc())
+        .limit(1)
+        .correlate(Room)
+        .scalar_subquery()
+    )
     rows = (
         await db.execute(
             select(Room, RoomMember)
             .join(RoomMember, and_(RoomMember.room_id == Room.id, RoomMember.user_id == user_id))
-            .order_by(Room.name)
+            .order_by(last_message.desc().nulls_last(), Room.name)
         )
     ).all()
     result: list[tuple[Room, RoomRole]] = []

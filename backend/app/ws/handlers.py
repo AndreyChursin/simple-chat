@@ -18,6 +18,7 @@ from app.ws.protocol import Activity, Heartbeat, MarkRead, SendMessage, Typing, 
 logger = logging.getLogger(__name__)
 
 TYPING_THROTTLE_SECONDS = 3.0
+TYPING_PRUNE_AT = 10_000
 _typing_sent: dict[tuple[int, str, int], float] = {}
 
 
@@ -68,6 +69,9 @@ async def _typing(conn: Connection, username: str, event: Typing) -> None:
     now = time.monotonic()
     if now - _typing_sent.get(key, 0.0) < TYPING_THROTTLE_SECONDS:
         return
+    if len(_typing_sent) > TYPING_PRUNE_AT:  # keep the throttle table small (old entries are inert)
+        for stale in [k for k, t in _typing_sent.items() if now - t >= TYPING_THROTTLE_SECONDS]:
+            del _typing_sent[stale]
     _typing_sent[key] = now
     await manager.publish(
         chat.key,

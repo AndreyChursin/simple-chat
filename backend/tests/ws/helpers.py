@@ -10,7 +10,7 @@ ORIGIN = "http://testserver"
 
 
 async def ws_connect(
-    server: str, client: httpx.AsyncClient | None, *, tab: str = "tab-1", origin: str = ORIGIN
+    server: str, client: httpx.AsyncClient | None, *, tab: str = "tab-1", origin: str | None = ORIGIN
 ) -> ClientConnection:
     headers = {}
     if client is not None:

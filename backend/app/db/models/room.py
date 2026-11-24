@@ -8,6 +8,7 @@ from sqlalchemy import (
     DateTime,
     Enum,
     ForeignKey,
+    Identity,
     Index,
     Integer,
     String,
@@ -44,10 +45,16 @@ class Room(Base):
         CheckConstraint("member_count >= 0", name="member_count_non_negative"),
         Index("ix_rooms_owner", "owner_id"),
         Index("ix_rooms_public_name", "name", postgresql_where=text("visibility = 'public'")),
-        # Catalog search: ILIKE '%q%' over name + description (migration 0003 defines the GIN index).
+        # Catalog search: ILIKE '%q%' over name + description (migration 0003).
+        Index(
+            "ix_rooms_search_trgm",
+            text("(name::text || ' ' || description) gin_trgm_ops"),
+            postgresql_using="gin",
+            postgresql_where=text("visibility = 'public'"),
+        ),
     )
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
     name: Mapped[str] = mapped_column(CITEXT, unique=True)
     description: Mapped[str] = mapped_column(String(1000), server_default="")
     visibility: Mapped[RoomVisibility] = mapped_column(_pg_enum(RoomVisibility, "room_visibility"))
@@ -106,7 +113,7 @@ class RoomInvitation(Base):
         Index("ix_room_invitations_invitee_status", "invitee_id", "status"),
     )
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
     room_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("rooms.id", ondelete="CASCADE"))
     invitee_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"))
     inviter_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="SET NULL"))
@@ -143,7 +150,7 @@ class ChatReadState(Base):
         ),
     )
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
     user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"))
     room_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("rooms.id", ondelete="CASCADE"))
     dm_id: Mapped[int | None] = mapped_column(

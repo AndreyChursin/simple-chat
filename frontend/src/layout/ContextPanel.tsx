@@ -3,7 +3,8 @@ import { Link, useNavigate } from 'react-router-dom';
 import { contactKeys, fetchProfile, openDm } from '../api/contacts';
 import { useMe } from '../auth/session';
 import { FriendRequestForm } from '../pages/ContactsPage';
-import { useState } from 'react';
+import { forwardRef, useState, type HTMLAttributes, type Ref } from 'react';
+import { Virtuoso } from 'react-virtuoso';
 import { leaveRoom, type RoomDetail, type RoomMember } from '../api/rooms';
 import { apiErrorToFields, FormError } from '../components/forms';
 import type { Presence } from '../api/auth';
@@ -91,37 +92,60 @@ function MemberCard({ member, room, onClose }: { member: RoomMember; room: RoomD
   );
 }
 
-function MemberList({ title, members, myId, room }: {
+/** Above this a group is virtualized (rooms hold up to 1000 members); small ones render plainly. */
+const VIRTUALIZE_FROM = 100;
+
+// Virtuoso types its list as a div; a <ul> keeps the list semantics of the small groups.
+const MemberUl = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>((props, ref) => (
+  <ul {...(props as unknown as HTMLAttributes<HTMLUListElement>)} ref={ref as unknown as Ref<HTMLUListElement>} className="member-list" />
+));
+MemberUl.displayName = 'MemberUl';
+
+function MemberList({ title, members, myId, room, scrollParent }: {
   title: string;
   members: RoomMember[];
   myId: number | undefined;
   room: RoomDetail;
+  scrollParent: HTMLElement | null;
 }) {
   const live = usePresenceStore((s) => s.byUser);
   const [open, setOpen] = useState<number | null>(null);
   members = sortByPresence(members, live);
   if (!members.length) return null;
+  const row = (m: RoomMember) => (
+    <>
+      <UserPresence user={m} />
+      {m.id !== null && m.id !== myId ? (
+        <button className="member-name link-button" aria-expanded={open === m.id} onClick={() => setOpen(open === m.id ? null : m.id)}>
+          {m.username}
+        </button>
+      ) : (
+        <span className="member-name">{m.username}</span>
+      )}
+      {m.display_name && <span className="muted member-display"> {m.display_name}</span>}
+      {open === m.id && <MemberCard member={m} room={room} onClose={() => setOpen(null)} />}
+    </>
+  );
   return (
     <section className="ctx-group">
       <h3>
         {title} <span className="muted">({members.length})</span>
       </h3>
-      <ul className="member-list">
-        {members.map((m) => (
-          <li key={m.id ?? m.username}>
-            <UserPresence user={m} />
-            {m.id !== null && m.id !== myId ? (
-              <button className="member-name link-button" aria-expanded={open === m.id} onClick={() => setOpen(open === m.id ? null : m.id)}>
-                {m.username}
-              </button>
-            ) : (
-              <span className="member-name">{m.username}</span>
-            )}
-            {m.display_name && <span className="muted member-display"> {m.display_name}</span>}
-            {open === m.id && <MemberCard member={m} room={room} onClose={() => setOpen(null)} />}
-          </li>
-        ))}
-      </ul>
+      {members.length >= VIRTUALIZE_FROM && scrollParent ? (
+        <Virtuoso
+          customScrollParent={scrollParent}
+          data={members}
+          computeItemKey={(_, m) => m.id ?? m.username}
+          components={{ List: MemberUl, Item: (props) => <li {...props} /> }}
+          itemContent={(_, m) => row(m)}
+        />
+      ) : (
+        <ul className="member-list">
+          {members.map((m) => (
+            <li key={m.id ?? m.username}>{row(m)}</li>
+          ))}
+        </ul>
+      )}
     </section>
   );
 }
@@ -132,6 +156,7 @@ export function ContextPanel({ room }: { room: RoomDetail }) {
   const me = useMe().data;
   const setCtxOpen = useLayout((s) => s.setCtxOpen);
   const [dialog, setDialog] = useState<'invite' | 'manage' | null>(null);
+  const [panel, setPanel] = useState<HTMLElement | null>(null);
   const [filter, setFilter] = useState('');
   const members = useRoomMembers(room.id);
   const leave = useMutation({
@@ -145,7 +170,7 @@ export function ContextPanel({ room }: { room: RoomDetail }) {
   const isAdmin = room.my_role === 'owner' || room.my_role === 'admin';
 
   return (
-    <aside className="ctx-panel" aria-label="Room details">
+    <aside className="ctx-panel" aria-label="Room details" ref={setPanel}>
       <button className="btn ghost small ctx-close" aria-label="Close details" onClick={() => setCtxOpen(false)}>
         ✕
       </button>
@@ -172,9 +197,9 @@ export function ContextPanel({ room }: { room: RoomDetail }) {
           value={filter} onChange={(e) => setFilter(e.target.value)} />
       )}
       {members.isPending && <p className="muted">Loading members…</p>}
-      <MemberList title="Owner" room={room} myId={me?.id} members={visible.filter((m) => m.role === 'owner')} />
-      <MemberList title="Admins" room={room} myId={me?.id} members={visible.filter((m) => m.role === 'admin')} />
-      <MemberList title="Members" room={room} myId={me?.id} members={visible.filter((m) => m.role === 'member')} />
+      <MemberList title="Owner" room={room} scrollParent={panel} myId={me?.id} members={visible.filter((m) => m.role === 'owner')} />
+      <MemberList title="Admins" room={room} scrollParent={panel} myId={me?.id} members={visible.filter((m) => m.role === 'admin')} />
+      <MemberList title="Members" room={room} scrollParent={panel} myId={me?.id} members={visible.filter((m) => m.role === 'member')} />
 
       <div className="ctx-footer">
         <FormError message={leave.error ? apiErrorToFields(leave.error).form : null} />

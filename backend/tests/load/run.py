@@ -304,7 +304,12 @@ class LoadTest:
             self.probes.pop((client.user_id, "offline"), None)
             watchers = self.observers(client.user_id)
             self.probes[(client.user_id, "online")] = (time.time(), set(watchers))
-            await self.open(client)
+            try:
+                await self.open(client)
+            except Exception as exc:  # a failed reconnect is a finding, not a crash of the whole run
+                self.stats.errors.append(f"reconnect of user {client.user_id} failed: {exc!r}")
+                self.probes.pop((client.user_id, "online"), None)
+                continue
             client.probing = False
             await asyncio.sleep(2.5)
             self.probes.pop((client.user_id, "online"), None)
@@ -319,7 +324,14 @@ class LoadTest:
             print(f"{len(self.clients)} sockets open in {time.perf_counter() - t0:.1f}s", flush=True)
             await asyncio.sleep(1)
             until = time.monotonic() + a.duration
-            await asyncio.gather(*(self.sender(c, until) for c in self.clients), self.prober(until))
+            tasks = [asyncio.create_task(self.sender(c, until)) for c in self.clients]
+            tasks.append(asyncio.create_task(self.prober(until)))
+            try:
+                await asyncio.gather(*tasks)
+            finally:  # never leave senders running into the cleanup below
+                for t in tasks:
+                    t.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
             await asyncio.sleep(3)  # drain
             self.stopping = True
             for c in self.clients:

@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.errors import AppError
+from app.core.logging import set_user
 from app.db.models import User, UserSession
 from app.db.session import get_db
 from app.services import auth as auth_service
@@ -31,6 +32,7 @@ async def get_current_session(request: Request, db: DbSession) -> UserSession:
     if token:
         session = await auth_service.resolve_session(db, token=token, ip=client_ip(request))
         if session is not None:
+            set_user(session.user_id)
             return session
     raise AppError(401, "not_authenticated", "Authentication required")
 

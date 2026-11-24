@@ -6,8 +6,8 @@ from pydantic import BaseModel
 from user_agents import parse as parse_ua
 
 from app.core.deps import CurrentSession, DbSession, clear_session_cookie
-from app.core.errors import AppError
 from app.db.models import UserSession
+from app.services import access
 from app.services import auth as auth_service
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
@@ -74,9 +74,7 @@ async def list_sessions(session: CurrentSession, db: DbSession) -> SessionList:
 
 @router.delete("/{session_id}", status_code=204)
 async def revoke_session(session_id: int, session: CurrentSession, db: DbSession) -> Response:
-    ids = await auth_service.other_session_ids(db, user_id=session.user_id, keep_session_id=None)
-    if session_id not in ids:
-        raise AppError(404, "not_found", "Session not found")
+    await access.require_own_session(db, session_id, session.user_id)
     await auth_service.revoke_sessions(db, user_id=session.user_id, session_ids=[session_id])
     response = Response(status_code=204)
     if session_id == session.id:

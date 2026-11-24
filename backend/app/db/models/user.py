@@ -6,6 +6,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    Identity,
     Index,
     LargeBinary,
     String,
@@ -25,7 +26,7 @@ class User(Base):
         CheckConstraint("username ~ '^[A-Za-z0-9_.-]{3,32}$'", name="username_format"),
     )
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
     email: Mapped[str] = mapped_column(CITEXT, unique=True)
     # Immutable after registration: enforced by trigger users_username_immutable (migration 0002).
     username: Mapped[str] = mapped_column(CITEXT, unique=True)
@@ -42,7 +43,7 @@ class UserSession(Base):
         Index("ix_user_sessions_expires_at", "expires_at"),
     )
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
     user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"))
     token_hash: Mapped[bytes] = mapped_column(LargeBinary, unique=True)
     persistent: Mapped[bool] = mapped_column(Boolean)
@@ -58,7 +59,7 @@ class UserSession(Base):
 class PasswordResetToken(Base):
     __tablename__ = "password_reset_tokens"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
     user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"), index=True)
     token_hash: Mapped[bytes] = mapped_column(LargeBinary, unique=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

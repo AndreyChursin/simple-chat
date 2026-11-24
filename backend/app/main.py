@@ -1,6 +1,5 @@
 import asyncio
 import contextlib
-import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -21,6 +20,7 @@ from app.api import (
 )
 from app.core.config import get_settings
 from app.core.errors import register_error_handlers
+from app.core.logging import configure_logging, request_context_middleware
 from app.core.security import origin_check_middleware
 from app.db.session import engine
 from app.services import maintenance
@@ -31,10 +31,7 @@ UPLOAD_SUBDIRS = ("rooms", "dms", "tmp")
 
 
 def _configure_logging() -> None:
-    logging.basicConfig(
-        level=get_settings().log_level,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-    )
+    configure_logging(get_settings().log_level)
 
 
 @asynccontextmanager
@@ -44,9 +41,10 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         (settings.upload_dir / sub).mkdir(parents=True, exist_ok=True)
     housekeeping = asyncio.create_task(maintenance.run_forever(), name="housekeeping")
     presence = asyncio.create_task(manager.run_presence_ticker(), name="presence-ticker")
+    metrics = asyncio.create_task(maintenance.log_metrics_forever(), name="metrics")
     yield
     await manager.close_all()
-    for task in (presence, housekeeping):
+    for task in (metrics, presence, housekeeping):
         task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await task
@@ -64,6 +62,8 @@ def create_app() -> FastAPI:
     )
     register_error_handlers(app)
     app.middleware("http")(origin_check_middleware)
+    # added last = outermost: the request id and the access line cover everything, 403s included
+    app.middleware("http")(request_context_middleware)
     for module in (
         health,
         auth,

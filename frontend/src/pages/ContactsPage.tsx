@@ -178,7 +178,7 @@ function RequestsTab() {
         )}
       </section>
       <section className="card">
-        <h2>Sent</h2>
+        <h2>Outgoing</h2>
         {outgoing.length === 0 ? (
           <p className="muted">No pending requests.</p>
         ) : (

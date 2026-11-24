@@ -99,12 +99,23 @@ export const useMessages = create<MessagesStore>((set, get) => {
       update(key, (c) => {
         const known = new Set(c.messages.map((m) => m.id));
         const fresh = items.filter((m) => !known.has(m.id));
+        let messages = sortMessages([...fresh, ...c.messages]);
+        let hasMoreAfter = c.hasMoreAfter;
+        // Scrolling far up: drop the newest real messages (out of view, below the reader); they are
+        // fetched again (`after_id`) when the reader scrolls back down. Optimistic ones always stay.
+        const real = messages.filter((m) => m.id > 0);
+        if (real.length > MAX_IN_MEMORY) {
+          const cut = real[MAX_IN_MEMORY - 1]!.id;
+          messages = messages.filter((m) => m.id < 0 || m.id <= cut);
+          hasMoreAfter = true;
+        }
         return {
           ...c,
           hasMoreBefore,
+          hasMoreAfter,
           loadingOlder: false,
           firstItemIndex: c.firstItemIndex - fresh.length,
-          messages: sortMessages([...fresh, ...c.messages]),
+          messages,
         };
       }),
 

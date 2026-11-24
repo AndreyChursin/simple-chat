@@ -16,6 +16,8 @@ async def test_handshake_requires_session_and_origin(live_server: str, make_clie
     alice = await user(make_client, "alice")
     evil = await ws_connect(live_server, alice, origin="http://evil.example")
     assert await close_code(evil) == 4003
+    no_origin = await ws_connect(live_server, alice, origin=None)
+    assert await close_code(no_origin) == 4003
 
 
 async def test_hello(live_server: str, make_client: ClientFactory) -> None:

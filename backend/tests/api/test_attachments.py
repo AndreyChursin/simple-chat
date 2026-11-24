@@ -320,6 +320,9 @@ async def test_send_with_attachments(make_client: ClientFactory, events: Events)
     rate_limiter.reset()  # 5 messages/s per user
     resp = await send(alice, room["id"], "x", attachment_ids=many)
     assert resp.status_code == 413 and error_code(resp) == "too_many_attachments"
+    resp = await send(alice, room["id"], "x", attachment_ids=list(range(1, 151)))  # far over: still 413
+    assert resp.status_code == 413 and error_code(resp) == "too_many_attachments"
+    rate_limiter.reset()
     assert (await send(alice, room["id"], "ten", attachment_ids=many[:10])).status_code == 201
 
 
@@ -381,14 +384,21 @@ async def test_garbage_collection(make_client: ClientFactory, db: AsyncSession) 
     old_part = base / "tmp" / "old.part"
     new_part = base / "tmp" / "new.part"
     gone_room = base / "rooms" / "424242" / "2020" / "01" / "x"
-    for p in (orphan, fresh_orphan, old_part, new_part, gone_room):
+    # a chat created after GC took its snapshot of ids: recent activity, must be left alone
+    new_chat = base / "dms" / "777777" / "2026" / "11" / "y"
+    empty_month = files.room_dir(room["id"]) / "2019" / "12"
+    for p in (orphan, fresh_orphan, old_part, new_part, gone_room, new_chat):
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_bytes(b"junk")
-    for p in (orphan, old_part):
+    empty_month.mkdir(parents=True)
+    for p in (orphan, old_part, empty_month, empty_month.parent, *(base / "rooms" / "424242").rglob("*")):
         os.utime(p, (hour_ago, hour_ago))
+    os.utime(base / "rooms" / "424242", (hour_ago, hour_ago))
 
     counts = await files.collect_garbage(db)
-    assert counts == {"pending": 1, "orphans": 1, "parts": 1, "chat_dirs": 1}
+    assert counts == {"pending": 1, "orphans": 1, "parts": 1, "chat_dirs": 1, "empty_dirs": 2}
+    assert not empty_month.exists() and not empty_month.parent.exists()
+    assert new_chat.exists()
     assert not on_disk(old_path)
     assert (await alice.get(old_pending["download_url"])).status_code == 404
     for kept in (fresh_pending, sent):

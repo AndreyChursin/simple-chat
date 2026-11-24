@@ -6,6 +6,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    Identity,
     Index,
     Integer,
     String,
@@ -39,7 +40,7 @@ class Attachment(Base):
         Index("ix_attachments_pending", "created_at", postgresql_where=text("message_id IS NULL")),
     )
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
     message_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("messages.id", ondelete="CASCADE"))
     room_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("rooms.id", ondelete="CASCADE"))
     dm_id: Mapped[int | None] = mapped_column(

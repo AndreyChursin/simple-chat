@@ -52,7 +52,7 @@ export function LoginPage() {
       // <GuestOnly> redirects to `next` once the user is cached.
       setMe(await login(email.trim(), password, keep));
     } catch (err) {
-      if (err instanceof ApiError && err.code === 'invalid_credentials') setError('Invalid e-mail or password');
+      if (err instanceof ApiError && err.code === 'invalid_credentials') setError('Invalid email or password');
       else setError(apiErrorToFields(err).form ?? 'Sign in failed');
     } finally {
       setBusy(false);

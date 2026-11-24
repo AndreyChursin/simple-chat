@@ -154,6 +154,11 @@ async def send_message(
             existing = await _existing_by_client_id(db, author.id, client_msg_id)
             if existing is not None:
                 return existing, False
+        # the room / DM was deleted between the access check and the insert
+        if "fk_messages_room_id_rooms" in str(exc.orig):
+            raise access.room_not_found() from exc
+        if "fk_messages_dm_id_direct_conversations" in str(exc.orig):
+            raise AppError(404, "not_found", "Conversation not found") from exc
         raise
     message = await _reload(db, message.id)
     await manager.publish(chat.key, {"type": "new_message", "message": serialize(message)})
@@ -293,8 +298,7 @@ async def edit_message(db: AsyncSession, *, user: User, message_id: int, content
     message, acc = await _message_with_access(db, message_id, user.id)
     if message.deleted_at is not None:
         raise AppError(400, "message_deleted", "A deleted message cannot be edited")
-    if message.author_id != user.id:
-        raise AppError(403, "not_message_author", "Only the author can edit a message")
+    access.require_message_author(message, user.id)
     content = normalize_content(content)
     _require_content(content, bool(message.attachments))
     if content == message.content:
@@ -311,8 +315,7 @@ async def delete_message(db: AsyncSession, *, user: User, message_id: int) -> No
     """Soft delete: content is wiped, the row stays as a "Message deleted" placeholder. Author, or a
     room admin/owner. Deleting an already deleted message is a no-op."""
     message, acc = await _message_with_access(db, message_id, user.id)
-    if message.author_id != user.id and not acc.can_moderate:
-        raise AppError(403, "forbidden", "You can only delete your own messages")
+    access.require_message_deletable(message, acc)
     if message.deleted_at is not None:
         return
     message.content = ""

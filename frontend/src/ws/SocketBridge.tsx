@@ -4,7 +4,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import type { Me, Presence, UserPublic } from '../api/auth';
 import { contactKeys, type Contacts, type Dm } from '../api/contacts';
 import { chatKey, fetchMessages, type ChatRef, type Message } from '../api/messages';
-import { roomKeys } from '../api/rooms';
+import { roomKeys, type MyRooms } from '../api/rooms';
 import { useMessages } from '../chat/messagesStore';
 import { useTyping } from '../chat/typingStore';
 import { ME_KEY } from '../queryClient';
@@ -15,6 +15,17 @@ import { socket, type ServerEvent } from './socket';
 
 const CATCH_UP_LIMIT = 100;
 const CATCH_UP_MAX_PAGES = 2; // then reload the latest page instead (API_AND_WS_SPEC §12.4)
+
+/** Move a room to the top of its section (public / private); same object if already there or unknown. */
+export function bumpRoom(mine: MyRooms, roomId: number): MyRooms {
+  const lift = <T extends { id: number }>(list: T[]): T[] => {
+    const i = list.findIndex((r) => r.id === roomId);
+    return i <= 0 ? list : [list[i]!, ...list.slice(0, i), ...list.slice(i + 1)];
+  };
+  const pub = lift(mine.public);
+  const priv = lift(mine.private);
+  return pub === mine.public && priv === mine.private ? mine : { public: pub, private: priv };
+}
 
 /** After a reconnect: fetch what was missed for every chat held in memory. */
 export async function catchUp(): Promise<void> {
@@ -79,6 +90,10 @@ export function SocketBridge() {
           const key = chatKey(m.chat);
           messages.upsert(key, m);
           if (e.type === 'new_message' && m.author.id !== null) useTyping.getState().stopped(key, m.author.id);
+          if (e.type === 'new_message' && m.chat.type === 'room') {
+            // most recently active rooms first (FRONTEND_SPEC §4.2), without refetching the list
+            qc.setQueryData<MyRooms>(roomKeys.mine, (mine) => mine && bumpRoom(mine, m.chat.id));
+          }
           const myId = qc.getQueryData<Me | null>(ME_KEY)?.id;
           if (e.type === 'new_message' && m.author.id !== myId && m.id > (useUnread.getState().lastRead[key] ?? 0)) {
             unread.bump(key);

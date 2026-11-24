@@ -1,6 +1,6 @@
 # API & WebSocket Specification
 
-Базовый путь REST: `/api`. Формат: JSON (UTF-8), кроме загрузки файлов (multipart) и скачивания (binary). Аутентификация: cookie `chat_session` (см. ARCHITECTURE.md §6). Все изменяющие запросы требуют корректный заголовок `Origin`.
+Базовый путь REST: `/api`. Формат: JSON (UTF-8), кроме загрузки файлов (multipart) и скачивания (binary). Аутентификация: cookie `chat_session` (см. ARCHITECTURE.md §6). Все изменяющие запросы (POST/PUT/PATCH/DELETE) требуют заголовок `Origin` из `APP_ORIGIN`: другой **или отсутствующий** → `403 origin_mismatch` (браузер шлёт его всегда; curl/скрипты должны ставить сами). WS-handshake — так же, иначе close 4003. Каждый HTTP-ответ несёт `X-Request-ID` (он же в JSON-логах).
 
 ## 0. Общие правила
 
@@ -34,6 +34,8 @@ Message      = { id, chat: ChatRef, author: UserPublic, content: string, created
                  attachments: Attachment[], client_msg_id: string|null }
 RoomSummary  = { id, name, description, visibility, member_count, owner: UserPublic,
                  my_role: "owner"|"admin"|"member"|null, unread: number, created_at }
+             // unread заполняется в GET /rooms/mine и GET /rooms/{id}; в остальных ответах и WS-событиях — 0
+             // (живые счётчики — GET /api/me/unread и unread_update)
 Page<T>      = { items: T[], has_more: boolean, next_cursor: number|null }
 ```
 
@@ -161,14 +163,14 @@ Page<T>      = { items: T[], has_more: boolean, next_cursor: number|null }
 | Метод и путь | Тело | Ответ | Ошибки |
 |---|---|---|---|
 | `POST /api/{chat}/attachments` | multipart: `file` (обязательно), `comment?` (≤ 1000) | `201 Attachment` (pending) | `413 file_too_large` (>20 971 520 байт), `413 image_too_large` (сигнатура изображения и >3 145 728 байт), `400 empty_file`, `400 validation_error` (не multipart, нет части `file`, нет имени, длинный comment), `403 dm_frozen`, `403`/`404` по доступу |
-| `PATCH /api/attachments/{id}` | `{comment}` (≤ 1000, `""`/`null` — сброс) | `200 Attachment` — только пока pending | `403` (не загрузивший), `404`, `409 attachment_already_sent` |
+| `PATCH /api/attachments/{id}` | `{comment}` (≤ 1000, `""`/`null` — сброс) | `200 Attachment` — только пока pending | `404` (нет или чужое pending-вложение — его существование не раскрывается), `403` (чужое отправленное — на практике раньше срабатывает `409`), `409 attachment_already_sent` |
 | `DELETE /api/attachments/{id}` | — | `204` (только pending, только загрузивший; файл удаляется с диска) | `409 attachment_already_sent` (удалять через сообщение), `403`, `404` |
 | `GET /api/attachments/{id}/download?inline=0|1` | — | `200` поток файла (заголовки — ARCHITECTURE.md §5.3); поддержка `Range` | `404` (нет / нет доступа *сейчас* / потерян доступ к комнате), `401` |
 
 Имя файла при вставке из буфера (`Ctrl+V`) без имени: клиент задаёт `pasted-image-YYYYMMDD-HHMMSS.png`.
 
 ## 11. Health
-`GET /api/health` → `200 {"status":"ok","db":"ok"}` | `503`.
+`GET /api/health` → `200 {"status":"ok","db":"ok"}` | `503 {"status":"error","db":"error"}` (формат healthcheck'а, не единый формат ошибок).
 
 ---
 
@@ -227,7 +229,7 @@ Page<T>      = { items: T[], has_more: boolean, next_cursor: number|null }
 { "type": "error", "req_id": "r-17", "code": "message_too_large", "message": "Message exceeds 3072 bytes" }
 //  коды: message_too_large | empty_message | dm_frozen | forbidden | not_found | room_not_found | invalid_reply_target
 //        | internal_error
-//        | too_many_attachments | rate_limited | validation_error
+//        | too_many_attachments | invalid_attachment | room_banned | rate_limited | validation_error
 
 // сообщения (всем online-участникам чата, во все вкладки, включая отправителя)
 { "type": "new_message", "message": { /* Message */ } }

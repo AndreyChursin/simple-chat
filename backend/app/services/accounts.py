@@ -21,7 +21,6 @@ from app.db.models import (
     Room,
     RoomMember,
     User,
-    UserSession,
 )
 from app.services import files
 from app.services.rooms import member_ids, remove_member
@@ -30,7 +29,6 @@ from app.ws.manager import manager
 
 @dataclass
 class _Plan:
-    session_ids: list[int] = field(default_factory=list)
     owned: dict[int, list[int]] = field(default_factory=dict)  # room id → other members
     left: dict[int, tuple[list[int], int]] = field(default_factory=dict)  # room id → (members, count)
     friends: list[int] = field(default_factory=list)
@@ -44,7 +42,7 @@ async def delete_account(db: AsyncSession, *, user: User, password: str) -> None
     if not await verify_password(user.password_hash, password):
         raise AppError(401, "invalid_current_password", "Password is incorrect")
     uid = user.id
-    plan = _Plan(session_ids=list(await db.scalars(select(UserSession.id).where(UserSession.user_id == uid))))
+    plan = _Plan()
 
     # Rooms the user is in, locked in id order (the same lock join/leave/ban take).
     rooms = list(
@@ -106,7 +104,7 @@ async def delete_account(db: AsyncSession, *, user: User, password: str) -> None
 async def _after_commit(plan: _Plan, uid: int) -> None:
     # Every tab of the user: offline for their audience (still computed from their chats), then
     # `session_revoked` + close 4001.
-    await manager.forget_user(uid, plan.session_ids)
+    await manager.forget_user(uid)
     await files.remove_files(plan.pending_files)
     for room_id in plan.owned:
         await files.remove_room_dir(room_id)

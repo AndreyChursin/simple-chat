@@ -22,6 +22,7 @@ from app.db.models import RoomVisibility
 from app.services import invitations as invitation_service
 from app.services import rooms as room_service
 from app.services import unread as unread_service
+from app.services.access import ChatRef
 
 router = APIRouter(tags=["rooms"])
 
@@ -64,8 +65,12 @@ async def create_room(body: CreateRoomRequest, user: CurrentUser, db: DbSession)
 @router.get("/rooms/{room_id}")
 async def get_room(room_id: int, user: CurrentUser, db: DbSession) -> RoomDetail:
     acc, admins = await room_service.get_room(db, user_id=user.id, room_id=room_id)
+    unread = 0
+    if acc.is_member:
+        items = await unread_service.list_unread(db, user_id=user.id, chat=ChatRef("room", room_id))
+        unread = items[0].unread if items else 0
     return RoomDetail(
-        **RoomSummary.of(acc.room, acc.role).model_dump(), admins=[UserPublic.of(a) for a in admins]
+        **RoomSummary.of(acc.room, acc.role, unread).model_dump(), admins=[UserPublic.of(a) for a in admins]
     )
 
 

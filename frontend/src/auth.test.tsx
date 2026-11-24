@@ -28,14 +28,14 @@ describe('auth routing', () => {
   it('shows a generic message on wrong credentials and sends keep_signed_in', async () => {
     const calls = mockApi({
       'GET /api/auth/me': () => apiError(401, 'not_authenticated'),
-      'POST /api/auth/login': () => apiError(401, 'invalid_credentials', 'Invalid e-mail or password'),
+      'POST /api/auth/login': () => apiError(401, 'invalid_credentials', 'Invalid email or password'),
     });
     renderApp('/login');
     fireEvent.change(await screen.findByLabelText('E-mail'), { target: { value: 'a@example.com' } });
     fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'wrong-pass' } });
     fireEvent.click(screen.getByLabelText('Keep me signed in'));
     fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent('Invalid e-mail or password');
+    expect(await screen.findByRole('alert')).toHaveTextContent('Invalid email or password');
     const body = JSON.parse(String(calls.find((c) => c.key === 'POST /api/auth/login')?.init?.body));
     expect(body).toEqual({ email: 'a@example.com', password: 'wrong-pass', keep_signed_in: true });
   });

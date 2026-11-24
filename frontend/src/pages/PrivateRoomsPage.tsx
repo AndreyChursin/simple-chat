@@ -13,6 +13,8 @@ import {
 import { apiErrorToFields, FormError } from '../components/forms';
 import { CreateRoomModal } from '../rooms/CreateRoomModal';
 import { toast } from '../stores/toasts';
+import { useUnread } from '../stores/unread';
+import { unreadBadge } from '../layout/NavSidebar';
 
 export function useMyInvitations() {
   return useQuery({ queryKey: roomKeys.myInvitations, queryFn: fetchMyInvitations, staleTime: 0 });
@@ -47,6 +49,7 @@ export function PrivateRoomsPage() {
   });
 
   const rooms = mine.data?.private ?? [];
+  const live = useUnread((s) => s.byChat);
   const invites = invitations.data ?? [];
   const error = accept.error ?? decline.error;
 
@@ -101,10 +104,15 @@ export function PrivateRoomsPage() {
           <p className="muted">You are not in any private room.</p>
         ) : (
           <ul className="room-cards">
-            {rooms.map((r) => (
+            {rooms.map((r) => {
+              const unread = live[`room:${r.id}`] ?? r.unread;
+              return (
               <li key={r.id} className="room-card">
                 <div className="room-card-main">
-                  <h3>🔒 {r.name}</h3>
+                  <h3>
+                    🔒 {r.name}
+                    {unread > 0 && <span className="badge" title="Unread messages">{unreadBadge(unread)}</span>}
+                  </h3>
                   {r.description && <p className="room-card-description">{r.description}</p>}
                   <small className="muted">
                     {r.member_count} {r.member_count === 1 ? 'member' : 'members'} · {r.my_role}
@@ -112,7 +120,8 @@ export function PrivateRoomsPage() {
                 </div>
                 <Link className="btn" to={`/rooms/${r.id}`}>Open</Link>
               </li>
-            ))}
+              );
+            })}
           </ul>
         )}
       </section>

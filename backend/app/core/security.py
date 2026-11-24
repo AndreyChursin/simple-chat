@@ -12,10 +12,10 @@ UNSAFE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 
 
 def is_origin_allowed(origin: str | None) -> bool:
-    """A missing Origin is allowed (non-browser clients, tests); browsers always send it on
-    cross-site unsafe requests and on WebSocket handshakes, so a mismatch is what we reject."""
-    if origin is None:
-        return True
+    """`Origin` must be present and one of APP_ORIGIN. Browsers send it on every POST/PATCH/DELETE
+    (same-origin included) and on every WebSocket handshake; other clients (curl, scripts) set it."""
+    if not origin:
+        return False
     return origin.rstrip("/") in get_settings().allowed_origins
 
 

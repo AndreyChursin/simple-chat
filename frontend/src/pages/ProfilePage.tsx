@@ -5,6 +5,7 @@ import { changePassword, deleteAccount, updateProfile } from '../api/auth';
 import { ApiError } from '../api/client';
 import { fetchMyRooms, roomKeys } from '../api/rooms';
 import { Modal } from '../components/Modal';
+import { toast } from '../stores/toasts';
 import { useMessages } from '../chat/messagesStore';
 import { markAccountDeleted, takeAccountDeleted, useMe, useSetMe } from '../auth/session';
 import {
@@ -89,7 +90,8 @@ function ChangePasswordForm() {
     try {
       await changePassword(form.current_password, form.new_password);
       setForm(empty);
-      setNotice('Password changed. Your other sessions were signed out.');
+      setNotice('Password changed.');
+      toast('Other sessions were signed out');
     } catch (err) {
       const mapped = apiErrorToFields(err);
       setFields(mapped.fields);

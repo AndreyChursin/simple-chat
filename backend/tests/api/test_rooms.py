@@ -24,7 +24,18 @@ async def test_create_room_makes_creator_owner(make_client: ClientFactory, event
     assert room["name"] == "general" and room["description"] == "Talk"
     assert room["visibility"] == "public" and room["member_count"] == 1
     assert room["my_role"] == "owner" and room["owner"]["username"] == "alice" and room["unread"] == 0
-    assert events == [([1], {"type": "room_joined", "room": room})]
+    assert events == [
+        ([1], {"type": "room_joined", "room": room}),
+        (
+            [1],
+            {
+                "type": "unread_update",
+                "chat": {"type": "room", "id": room["id"]},
+                "unread": 0,
+                "last_read_message_id": 0,
+            },
+        ),
+    ]
 
     detail = (await alice.get(f"/api/rooms/{room['id']}")).json()
     assert [a["username"] for a in detail["admins"]] == ["alice"]
@@ -184,8 +195,13 @@ async def test_join_and_leave_public_room(
     resp = await bob.post(f"/api/rooms/{rid}/join")
     assert resp.status_code == 200
     assert resp.json()["my_role"] == "member" and resp.json()["member_count"] == 2
-    assert [(u, e["type"]) for u, e in events] == [([2], "room_joined"), ([1], "member_joined")]
-    assert events[1][1]["user"]["username"] == "bob" and events[1][1]["member_count"] == 2
+    assert [(u, e["type"]) for u, e in events] == [
+        ([2], "room_joined"),
+        ([2], "unread_update"),
+        ([1], "member_joined"),
+    ]
+    assert events[1][1]["unread"] == 0
+    assert events[2][1]["user"]["username"] == "bob" and events[2][1]["member_count"] == 2
     read_state = await db.scalar(
         text("SELECT last_read_message_id FROM chat_read_states WHERE user_id = 2 AND room_id = :r"),
         {"r": rid},
@@ -373,3 +389,14 @@ async def test_owner_must_stay_admin_member(make_client: ClientFactory, db: Asyn
     with pytest.raises(DBAPIError, match="owner must be an admin member"):
         await db.execute(text("DELETE FROM room_members WHERE room_id = :r"), {"r": room["id"]})
         await db.commit()
+
+
+async def test_my_rooms_most_recently_active_first(make_client: ClientFactory) -> None:
+    alice = await user(make_client, "alice")
+    quiet = await create_room(alice, "aaa-quiet")
+    older = await create_room(alice, "older")
+    newer = await create_room(alice, "newer")
+    await alice.post(f"/api/rooms/{newer['id']}/messages", json={"content": "1"})
+    await alice.post(f"/api/rooms/{older['id']}/messages", json={"content": "2"})
+    names = [r["name"] for r in (await alice.get("/api/rooms/mine")).json()["public"]]
+    assert names == ["older", "newer", quiet["name"]]

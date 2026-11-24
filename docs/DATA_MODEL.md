@@ -30,8 +30,8 @@ users ─┬─< user_sessions
 | Колонка | Тип | Ограничения |
 |---|---|---|
 | id | BIGINT identity | PK |
-| email | CITEXT | NOT NULL, UNIQUE, CHECK (length ≤ 254 и содержит `@`) |
-| username | CITEXT | NOT NULL, UNIQUE, CHECK (`username ~ '^[A-Za-z0-9_.-]{3,32}$'`). **Immutable** — триггер `users_username_immutable` (BEFORE UPDATE: `IF NEW.username <> OLD.username THEN RAISE EXCEPTION`) |
+| email | CITEXT | NOT NULL, UNIQUE, CHECK (length ≤ 254 и `@` не первым символом: `position('@' in email) > 1`) |
+| username | CITEXT | NOT NULL, UNIQUE, CHECK (`username ~ '^[A-Za-z0-9_.-]{3,32}$'`). **Immutable** — триггер `users_username_immutable` (BEFORE UPDATE: `IF NEW.username::text IS DISTINCT FROM OLD.username::text THEN RAISE EXCEPTION` — сравнение как text, иначе citext пропустил бы смену регистра; исправлено миграцией 0008) |
 | password_hash | TEXT | NOT NULL (Argon2id, формат PHC `$argon2id$...`) |
 | display_name | VARCHAR(64) | NULL (опционально, изменяемо) |
 | created_at | TIMESTAMPTZ | NOT NULL DEFAULT now() |
@@ -50,7 +50,7 @@ users ─┬─< user_sessions
 | last_seen_at | TIMESTAMPTZ | NOT NULL |
 | expires_at | TIMESTAMPTZ | NOT NULL |
 
-Индексы: `ix_user_sessions_user (user_id, last_seen_at DESC)`, `ix_user_sessions_expires (expires_at)` (чистка просроченных раз в час).
+Индексы: `ix_user_sessions_user_last_seen (user_id, last_seen_at)`, `ix_user_sessions_expires_at (expires_at)` (чистка просроченных раз в час).
 
 ### 2.3. `password_reset_tokens`
 | Колонка | Тип | Ограничения |
@@ -102,7 +102,7 @@ PK `(banner_id, banned_id)`, CHECK `banner_id <> banned_id`, индекс `(bann
 | visibility | room_visibility | NOT NULL |
 | owner_id | BIGINT | NOT NULL FK → users **ON DELETE CASCADE** |
 | created_at | TIMESTAMPTZ | NOT NULL |
-| member_count | INTEGER | NOT NULL DEFAULT 0 (денормализация для каталога; поддерживается сервисом в той же транзакции) |
+| member_count | INTEGER | NOT NULL DEFAULT 0, CHECK (`member_count >= 0`) (денормализация для каталога; поддерживается сервисом в той же транзакции) |
 
 Индексы:
 - `ix_rooms_owner (owner_id)`
@@ -265,10 +265,10 @@ FROM chat_read_states crs WHERE crs.user_id = :user_id AND crs.room_id IS NOT NU
 | `messages.reply_to_message_id` извне | невозможно (reply только в том же чате) | — |
 | WS | `room_access_revoked{reason:"room_deleted"}` всем бывшим участникам | сервис, после commit |
 
-### 3.2. `Delete account` (сервис `users.delete_account`, одна транзакция)
+### 3.2. `Delete account` (сервис `accounts.delete_account`, одна транзакция)
 
 Порядок:
-1. `SELECT id FROM rooms WHERE owner_id = :uid` → запомнить для удаления каталогов и WS-событий.
+1. Комнаты пользователя (`JOIN room_members`, `FOR UPDATE` в порядке id): свои — запомнить для удаления каталогов и WS-событий, в чужих — снять членство через сервис (`member_count`).
 2. `DELETE FROM users WHERE id = :uid`. Далее всё по FK:
 
 | Объект | Поведение | Механизм |
@@ -302,5 +302,5 @@ FROM chat_read_states crs WHERE crs.user_id = :user_id AND crs.room_id IS NOT NU
 | Revoke сессии / Sign out | строка `user_sessions` | всё остальное |
 
 ## 4. Миграции
-- `0001_extensions` (citext, pg_trgm; ENUM-типы создаются в миграциях своих таблиц), `0002_users_sessions`, `0003_rooms` (+ `chat_read_states` только с `room_id` и CHECK `num_nonnulls(room_id) = 1`), `0004_check_constraint_names` (исправляет удвоенные имена CHECK из 0002/0003: `op.create_table` применял naming convention к уже полным именам; в новых миграциях полные имена оборачиваются в `op.f()`), `0005_messages` (только `room_id`), `0006_contacts_dms` (добавляет `dm_id` в `messages` и `chat_read_states`: FK, partial UNIQUE/индексы и расширяет CHECK до `num_nonnulls(room_id, dm_id) = 1`), `0007_attachments` — нарезка по этапам roadmap; триггеры (`users_username_immutable`, `room_owner_is_admin_member`) — в миграциях как raw SQL.
-- Seed-данных нет. Тестовая БД `chat_test` создаётся `db/init/01-create-test-db.sql` (с расширениями), схема накатывается фикстурой pytest через `alembic upgrade head`, каждый тест — в транзакции с откатом / `TRUNCATE ... RESTART IDENTITY CASCADE`.
+- `0001_extensions` (citext, pg_trgm; ENUM-типы создаются в миграциях своих таблиц), `0002_users_sessions`, `0003_rooms` (+ `chat_read_states` только с `room_id` и CHECK `num_nonnulls(room_id) = 1`), `0004_check_constraint_names` (исправляет удвоенные имена CHECK из 0002/0003: `op.create_table` применял naming convention к уже полным именам; в новых миграциях полные имена оборачиваются в `op.f()`), `0005_messages` (только `room_id`), `0006_contacts_dms` (добавляет `dm_id` в `messages` и `chat_read_states`: FK, partial UNIQUE/индексы и расширяет CHECK до `num_nonnulls(room_id, dm_id) = 1`), `0007_attachments`, `0008_username_case_immutable` (триггер username ловит и смену регистра) — нарезка по этапам roadmap; триггеры (`users_username_immutable`, `room_owner_is_admin_member`) — в миграциях как raw SQL.
+- Seed-данных нет. Тестовая БД `chat_test` создаётся `db/init/01-create-test-db.sql` (только `CREATE DATABASE`; расширения ставит миграция 0001), схема накатывается фикстурой pytest через `alembic upgrade head`, каждый тест — в транзакции с откатом / `TRUNCATE ... RESTART IDENTITY CASCADE`.

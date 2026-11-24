@@ -1,6 +1,6 @@
 # FRONTEND SPEC — UI/UX (Section 4, Appendix A)
 
-Стек: React 18 + Vite + TypeScript (strict), react-router v6, TanStack Query (REST), Zustand (сокет, presence, unread, typing), react-virtuoso (лента), @emoji-mart/react. Без UI-фреймворков-монстров; CSS Modules + CSS-переменные (светлая/тёмная тема по `prefers-color-scheme`).
+Стек: React 18 + Vite + TypeScript (strict), react-router v6, TanStack Query (REST), Zustand (сокет, presence, unread, typing), react-virtuoso (лента), @emoji-mart/react. Без UI-фреймворков-монстров; один глобальный `styles.css` на CSS-переменных (светлая/тёмная тема по `prefers-color-scheme`).
 
 ## 1. Маршруты
 
@@ -28,14 +28,14 @@
 ```
 - `Logo` → `/`.
 - `Public Rooms` → каталог; `Private Rooms` → список приватных комнат + бейдж числа входящих приглашений; `Contacts` → бейдж числа входящих заявок в друзья.
-- `Profile ▼` — dropdown: имя (`username`, `display_name`), `Profile settings`, `Change password`, `Delete account`.
+- `Profile ▼` — кнопка подписана именем пользователя (`display_name` или `username`) ▾; dropdown: имя (`username`, `display_name`), `Profile settings`, `Change password`, `Delete account`.
 - `Sign out` — `POST /api/auth/logout`, затем `/login`. Завершает только текущую сессию; у других вкладок **этой же** сессии WS закрывается с `4001` и они тоже переходят на `/login` (это та же cookie). Другие браузеры не затрагиваются.
 
 ## 3. Auth-экраны
 - **Sign in:** email, password, чекбокс `Keep me signed in` (по умолчанию выключен), ссылки `Forgot password?`, `Create account`. Ошибка `401` → «Invalid email or password» (без уточнения).
 - **Sign up:** email, username (подсказка: «3–32 символа: буквы, цифры, `_ . -`. **Username нельзя будет изменить**»), password + confirm. Ошибки `409` — под соответствующим полем.
-- **Forgot password:** email → всегда сообщение «If the account exists, we sent a link» (в dev письмо в Mailpit http://localhost:8025).
-- **Reset password:** новый пароль + подтверждение; `410` → «Link expired or already used» + ссылка на повторный запрос.
+- **Forgot password:** email → всегда сообщение «If an account with this e-mail exists, we have sent a link to reset the password. The link is valid for 1 hour.» (в dev письмо в Mailpit http://localhost:8025).
+- **Reset password:** новый пароль + подтверждение; `410` → «This link has expired or was already used. Request a new one.» (со ссылкой на повторный запрос).
 
 ## 4. Main Chat Layout
 
@@ -66,7 +66,7 @@
 2. **После входа в комнату:** навигация переходит в режим *compact accordion* — раскрыта только секция текущего чата, остальные свёрнуты до заголовка с суммарным бейджем непрочитанного (`▸ Private (1)`). Пользователь может вручную раскрыть любую секцию (состояние запоминается в `localStorage` на сессию работы). Справа появляется панель контекста со списком участников и их статусами — выполняется «Room members are shown on the right side».
 3. **DM:** правая панель показывает карточку собеседника (presence, кнопки `Remove friend`, `Ban user`, статус frozen) вместо списка участников.
 4. Сторона навигационной панели задаётся одной CSS-переменной/grid-areas (`"nav chat ctx"`) — если заказчик потребует навигацию справа (буквальное прочтение 4.1.1), меняется только `grid-template-areas: "chat ctx nav"` без переделки компонентов.
-5. Адаптивность: ≥ 1280 px — три колонки (nav 260 px, ctx 280 px); 960–1279 — панель контекста становится выдвижной (кнопка 👥 в заголовке чата); < 960 — навигация тоже выдвижная (кнопка ☰). Кнопка сворачивания nav (`«`) сворачивает её до узкой полосы иконок с бейджами.
+5. Адаптивность: ≥ 1280 px — три колонки (nav 260 px, ctx 280 px); 960–1279 — панель контекста становится выдвижной (кнопка 👥 в заголовке чата); < 960 — навигация тоже выдвижная (кнопка ☰). Кнопка сворачивания nav (`«`) сворачивает её до узкой полосы: `»`, иконки секций 🌐 / 🔒 / 👥 с суммарными бейджами непрочитанного (клик раскрывает панель на этой секции), `＋` (Create room).
 
 ### 4.2. Nav Sidebar
 - **Поиск** (фильтрует локально комнаты и контакты по подстроке; `Enter` с непустым запросом, не найденным локально → переход в каталог с этим запросом).
@@ -118,7 +118,7 @@
 
 ### 4.5. Context Panel (комната)
 - **Room info:** имя, описание, visibility (🌐/🔒), дата создания.
-- **Owner** (с presence), **Admins**, **Members** — с точками статусов, сортировка online → AFK → offline, виртуализированный список (до 1000), поиск по участникам при > 50.
+- **Owner** (с presence), **Admins**, **Members** — с точками статусов, сортировка online → AFK → offline, список виртуализируется (react-virtuoso, общий скролл панели) начиная со 100 человек в группе — комнаты до 1000, поиск по участникам при > 50.
 - Клик по участнику → popover: профиль, `Send friend request` (с полем приветствия), `Message` (если друзья), а для admin/owner — `Make admin` (owner), `Remove admin`, `Ban from room` (с подтверждением и необязательной причиной). На owner модерационных действий нет.
 - Кнопки **`Invite user`** (все участники; модалка с поиском по username) и **`Manage room`** (только admin/owner). Для обычного участника — `Leave room`; для owner вместо `Leave room` подсказка «Owner can't leave — delete the room in Manage room → Settings».
 
@@ -149,7 +149,7 @@
 - `Ban` — подтверждение: «They won't be able to contact you. Your friendship will end and your conversation will become read-only».
 
 ## 8. Sessions (`/sessions`)
-- Таблица: браузер + ОС (иконка устройства), IP, создана, последняя активность, «Keep signed in» ✓, метка **This device** для текущей.
+- Таблица: браузер + ОС (иконка устройства), IP, создана, последняя активность, «Keep signed in» — бейдж `Remembered` у устройства, метка **This device** для текущей.
 - `Sign out` на строке — `DELETE /api/sessions/{id}` (для текущей — как общий Sign out). Кнопка `Sign out all other sessions`.
 
 ## 9. Profile (`/profile`)
@@ -161,5 +161,5 @@
 - `src/api/` — типизированные функции REST (типы из API_AND_WS_SPEC.md, общий `ApiError` с `code`).
 - `src/ws/socket.ts` — единственный WS на вкладку: reconnect с backoff, `heartbeat` 25 с, трекер активности (throttle 10 с), очередь исходящих, роутинг событий в сторы и инвалидацию TanStack Query.
 - Сторы Zustand: `presenceStore` (`Map<userId, Presence>`), `unreadStore` (`Map<chatKey, number>`), `typingStore`, `messagesStore` (по чатам: массив, `hasMore`, pending-сообщения).
-- `document.title` = `(N) Chat`, где N — сумма непрочитанного; favicon с точкой при N > 0.
+- `document.title` = `(N) Chat`, где N — сумма непрочитанного (`99+` при N > 99); favicon с точкой при N > 0.
 - Тесты (vitest + Testing Library): байтовый счётчик/лимиты, логика автоскролла (внизу/не внизу), обработка paste, аккордеон nav (expanded ↔ compact), видимость действий Manage Room по ролям, frozen composer.

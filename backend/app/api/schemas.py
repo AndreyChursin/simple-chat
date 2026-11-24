@@ -353,7 +353,7 @@ class SendMessageRequest(StrictModel):
     reply_to_message_id: int | None = None
     client_msg_id: uuid.UUID | None = None
     # The 10-per-message limit answers 413 too_many_attachments (services/messages.py).
-    attachment_ids: list[int] = Field(default_factory=list, max_length=100)
+    attachment_ids: list[int] = Field(default_factory=list, max_length=1000)
 
 
 class EditMessageRequest(StrictModel):

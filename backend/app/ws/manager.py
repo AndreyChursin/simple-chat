@@ -15,6 +15,7 @@ import json
 import logging
 import time
 import uuid
+from collections import deque
 from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass, field
 from typing import Any, Literal
@@ -49,7 +50,10 @@ class Connection:
     connected_at: float
     last_activity: float  # a new connection counts as active
     conn_id: str = field(default_factory=lambda: uuid.uuid4().hex)
-    send_queue: asyncio.Queue[str | None] = field(default_factory=lambda: asyncio.Queue(SEND_QUEUE_SIZE))
+    # (frame, monotonic time it was queued) — the delay to the socket write is the fan-out latency
+    send_queue: asyncio.Queue[tuple[str, float] | None] = field(
+        default_factory=lambda: asyncio.Queue(SEND_QUEUE_SIZE)
+    )
     writer: asyncio.Task[None] | None = None
     closing: bool = False
 
@@ -75,6 +79,9 @@ class ConnectionManager:
         self.chat_subscribers: dict[ChatKey, set[int]] = {}
         self.user_chats: dict[int, set[ChatKey]] = {}
         self._background: set[asyncio.Task[None]] = set()
+        # queue → socket write delays since the last `snapshot_metrics()` (a bounded sample)
+        self.fanout_latencies: deque[float] = deque(maxlen=50_000)
+        self.frames_sent = 0
 
     # --- lifecycle --------------------------------------------------------------------------------
 
@@ -148,10 +155,13 @@ class ConnectionManager:
     async def _writer(self, conn: Connection) -> None:
         try:
             while True:
-                data = await conn.send_queue.get()
-                if data is None:
+                item = await conn.send_queue.get()
+                if item is None:
                     return
+                data, queued_at = item
                 await conn.ws.send_text(data)
+                self.fanout_latencies.append(time.monotonic() - queued_at)
+                self.frames_sent += 1
         except asyncio.CancelledError:
             raise
         except Exception:  # socket already gone: the reader loop will notice and disconnect
@@ -175,7 +185,7 @@ class ConnectionManager:
         if conn.closing:
             return
         try:
-            conn.send_queue.put_nowait(data)
+            conn.send_queue.put_nowait((data, time.monotonic()))
         except asyncio.QueueFull:
             logger.warning("ws slow consumer %s (user %s), closing", conn.conn_id, conn.user_id)
             if conn.writer is not None:
@@ -231,11 +241,18 @@ class ConnectionManager:
             self.send_to_connection(conn, {"type": "session_revoked"})
         await asyncio.gather(*(self._close(conn, CLOSE_UNAUTHENTICATED) for conn in targets))
 
-    async def forget_user(self, user_id: int, session_ids: Iterable[int]) -> None:
-        """Account deleted: offline for the current audience right away (before their chats change),
-        then `session_revoked` + close 4001 on every connection."""
-        await self._set_presence(user_id, "offline")
-        await self.revoke_sessions(session_ids)
+    async def forget_user(self, user_id: int) -> None:
+        """Account deleted: `session_revoked` + close 4001 on every connection of the user (whatever the
+        session, even one opened during the deletion), then `offline` to their audience at once — no
+        grace period, and no intermediate online/AFK while the tabs close one by one."""
+        targets = [self.conns[c] for c in tuple(self.by_user.get(user_id, ()))]
+        for conn in targets:
+            self.send_to_connection(conn, {"type": "session_revoked"})
+        await asyncio.gather(*(self._close(conn, CLOSE_UNAUTHENTICATED) for conn in targets))
+        grace = self._grace.pop(user_id, None)
+        if grace is not None:
+            grace.cancel()
+        await self._went_offline(user_id)
 
     # --- presence ---------------------------------------------------------------------------------
 
@@ -324,6 +341,20 @@ class ConnectionManager:
                 subs.discard(user_id)
                 if not subs:
                     del self.chat_subscribers[chat]
+
+    def snapshot_metrics(self) -> dict[str, Any]:
+        """For the per-minute metrics log line (docs/ARCHITECTURE.md §7); resets the latency window."""
+        latencies = sorted(self.fanout_latencies)
+        self.fanout_latencies.clear()
+        frames, self.frames_sent = self.frames_sent, 0
+        p95 = latencies[min(len(latencies) - 1, int(len(latencies) * 0.95))] if latencies else None
+        return {
+            "connections": len(self.conns),
+            "users_online": sum(1 for p in self.presence.values() if p == "online"),
+            "users_afk": sum(1 for p in self.presence.values() if p == "AFK"),
+            "frames_sent": frames,
+            "fanout_p95_ms": round(p95 * 1000, 1) if p95 is not None else None,
+        }
 
     def connection_count(self, user_id: int | None = None) -> int:
         return len(self.conns) if user_id is None else len(self.by_user.get(user_id, ()))

@@ -1,7 +1,18 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import BigInteger, CheckConstraint, DateTime, ForeignKey, Index, Text, Uuid, func, text
+from sqlalchemy import (
+    BigInteger,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Identity,
+    Index,
+    Text,
+    Uuid,
+    func,
+    text,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -37,10 +48,17 @@ class Message(Base):
             "reply_to_message_id",
             postgresql_where=text("reply_to_message_id IS NOT NULL"),
         ),
-        # ix_messages_content_trgm (GIN, history search) is defined in migration 0004.
+        # History search (ILIKE '%q%'), migration 0005.
+        Index(
+            "ix_messages_content_trgm",
+            "content",
+            postgresql_using="gin",
+            postgresql_ops={"content": "gin_trgm_ops"},
+            postgresql_where=text("deleted_at IS NULL"),
+        ),
     )
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
     room_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("rooms.id", ondelete="CASCADE"))
     dm_id: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("direct_conversations.id", ondelete="CASCADE")

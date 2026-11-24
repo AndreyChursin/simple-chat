@@ -5,6 +5,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import AppError
+from tests.conftest import ClientFactory
 
 
 async def test_health_ok(client: httpx.AsyncClient) -> None:
@@ -79,6 +80,15 @@ async def test_foreign_origin_rejected_for_unsafe_methods(app: FastAPI, client: 
     assert resp.json()["error"]["code"] == "origin_mismatch"
 
 
+async def test_missing_origin_rejected_for_unsafe_methods(app: FastAPI, make_client: ClientFactory) -> None:
+    _add_probe_routes(app)
+    c = await make_client()
+    del c.headers["Origin"]
+    resp = await c.post("/api/_probe/validate", json={"name": "a"})
+    assert resp.status_code == 403 and resp.json()["error"]["code"] == "origin_mismatch"
+    assert (await c.get("/api/health")).status_code == 200
+
+
 async def test_same_origin_allowed(app: FastAPI, client: httpx.AsyncClient) -> None:
     _add_probe_routes(app)
     resp = await client.post(
@@ -90,3 +100,10 @@ async def test_same_origin_allowed(app: FastAPI, client: httpx.AsyncClient) -> N
 async def test_safe_methods_ignore_origin(client: httpx.AsyncClient) -> None:
     resp = await client.get("/api/health", headers={"Origin": "http://evil.example"})
     assert resp.status_code == 200
+
+
+async def test_every_response_has_a_request_id(client: httpx.AsyncClient) -> None:
+    first = await client.get("/api/health")
+    second = await client.post("/api/auth/login", json={"email": "x@example.com", "password": "nope-nope"})
+    ids = {first.headers["X-Request-ID"], second.headers["X-Request-ID"]}
+    assert len(ids) == 2 and all(len(i) == 16 for i in ids)
