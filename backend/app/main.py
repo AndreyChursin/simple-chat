@@ -16,6 +16,7 @@ from app.api import (
     moderation,
     rooms,
     sessions,
+    unread,
     users,
 )
 from app.core.config import get_settings
@@ -71,6 +72,7 @@ def create_app() -> FastAPI:
         rooms,
         moderation,
         invitations,
+        unread,
         messages,
         contacts,
         attachments,

@@ -2,6 +2,7 @@ import { Navigate, Outlet, Route, Routes } from 'react-router-dom';
 import { GuestOnly, RequireAuth } from './auth/session';
 import { Toasts } from './components/Toasts';
 import { TopMenu } from './components/TopMenu';
+import { UnreadTitle } from './components/UnreadTitle';
 import { ChatLayout } from './layout/ChatLayout';
 import { ForgotPasswordPage, LoginPage, RegisterPage, ResetPasswordPage } from './pages/AuthPages';
 import { CatalogPage } from './pages/CatalogPage';
@@ -22,6 +23,7 @@ function AppLayout() {
         <Outlet />
         <Toasts />
         <SocketBridge />
+        <UnreadTitle />
       </div>
     </RequireAuth>
   );

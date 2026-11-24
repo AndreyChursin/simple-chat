@@ -66,3 +66,10 @@ export const deleteMessage = (id: number): Promise<void> => apiRequest<void>(`/m
 
 /** UTF-8 byte length, the unit of the server-side limit. */
 export const byteLength = (text: string): number => new TextEncoder().encode(text.replace(/\r\n/g, '\n')).length;
+
+/** REST twin of the WS `mark_read` (used while the socket is down). */
+export const markRead = (chat: ChatRef, lastReadMessageId: number): Promise<void> =>
+  apiRequest<void>(`${chatPath(chat)}/read`, {
+    method: 'POST',
+    body: JSON.stringify({ last_read_message_id: lastReadMessageId }),
+  });

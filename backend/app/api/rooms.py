@@ -21,6 +21,7 @@ from app.core.deps import CurrentUser, DbSession
 from app.db.models import RoomVisibility
 from app.services import invitations as invitation_service
 from app.services import rooms as room_service
+from app.services import unread as unread_service
 
 router = APIRouter(tags=["rooms"])
 
@@ -45,9 +46,10 @@ async def catalog(
 @router.get("/rooms/mine")
 async def my_rooms(user: CurrentUser, db: DbSession) -> MyRooms:
     result = MyRooms(public=[], private=[])
+    unread = await unread_service.unread_map(db, user_id=user.id)
     for room, role in await room_service.list_my_rooms(db, user_id=user.id):
         target = result.public if room.visibility == RoomVisibility.public else result.private
-        target.append(RoomSummary.of(room, role))
+        target.append(RoomSummary.of(room, role, unread.get(("room", room.id), 0)))
     return result
 
 

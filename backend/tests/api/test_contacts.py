@@ -284,3 +284,12 @@ async def test_contacts_require_auth(client: httpx.AsyncClient) -> None:
         ("GET", "/api/dms/1"),
     ):
         assert (await client.request(method, url, json={})).status_code == 401
+
+
+async def test_accepting_twice_is_a_conflict(make_client: ClientFactory) -> None:
+    alice = await user(make_client, "alice")
+    bob = await user(make_client, "bob")
+    req = (await alice.post("/api/friend-requests", json={"username": "bob"})).json()["request"]
+    assert (await bob.post(f"/api/friend-requests/{req['id']}/accept")).status_code == 200
+    resp = await bob.post(f"/api/friend-requests/{req['id']}/accept")
+    assert resp.status_code == 409 and error_code(resp) == "request_not_pending"

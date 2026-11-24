@@ -63,3 +63,24 @@ export function safeNext(raw: string | null): string {
   if (!raw || !raw.startsWith('/') || raw.startsWith('//')) return '/';
   return raw;
 }
+
+const DELETED_KEY = 'chat.accountDeleted';
+
+/** One-shot notice for the sign-in page after the account was deleted in this tab. */
+export function markAccountDeleted(): void {
+  try {
+    sessionStorage.setItem(DELETED_KEY, '1');
+  } catch {
+    /* storage unavailable: the notice is just skipped */
+  }
+}
+
+export function takeAccountDeleted(): boolean {
+  try {
+    const set = sessionStorage.getItem(DELETED_KEY) === '1';
+    sessionStorage.removeItem(DELETED_KEY);
+    return set;
+  } catch {
+    return false;
+  }
+}

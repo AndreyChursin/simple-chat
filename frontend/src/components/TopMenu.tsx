@@ -70,6 +70,9 @@ export function TopMenu() {
               <Link role="menuitem" to="/profile#password" onClick={() => setOpen(false)}>
                 Change password
               </Link>
+              <Link role="menuitem" to="/profile#delete-account" onClick={() => setOpen(false)}>
+                Delete account
+              </Link>
             </div>
           )}
         </div>

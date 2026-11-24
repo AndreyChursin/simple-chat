@@ -68,7 +68,7 @@ Page<T>      = { items: T[], has_more: boolean, next_cursor: number|null }
 | `GET /api/users/{username}` | — | `200 UserPublic + {friendship: "none"|"pending_out"|"pending_in"|"friends", banned_by_me: bool, has_banned_me: bool}` (поля дружбы/банов добавляются на этапе 6; до него — только `UserPublic`) | `404 user_not_found` |
 | `GET /api/users?search=q&limit=20` | — | `200 {items: UserPublic[]}` (префиксный поиск по username, ≥ 2 символов) | `400` |
 | `PATCH /api/me` | `{display_name}` (строка ≤ 64 после trim; `""`/`null` → сброс) | `200 {user}` | `400 username_immutable` если в теле есть `username`; `400 validation_error` для любого другого поля (в т.ч. email — смена email вне scope) |
-| `DELETE /api/me` | `{password}` | `204`; каскад по DATA_MODEL.md §3.2, cookie очищен, все WS закрыты | `401 invalid_current_password` |
+| `DELETE /api/me` | `{password}` | `204`; каскад по DATA_MODEL.md §3.2, cookie очищен; всем вкладкам всех сессий `session_revoked` + close 4001, presence → `offline` сразу (без grace). События другим: см. DATA_MODEL.md §3.2 п. 3 | `401 invalid_current_password`, `400 validation_error` (нет `password`) |
 
 ## 4. Contacts, Friends, User-Bans
 
@@ -149,8 +149,8 @@ Page<T>      = { items: T[], has_more: boolean, next_cursor: number|null }
 | `POST /api/{chat}/messages` | `{content, reply_to_message_id?, attachment_ids?: number[], client_msg_id?: uuid}` | `201 Message`; fan-out `new_message` | `400 empty_message` (пусто и нет вложений), `413 message_too_large`, `413 too_many_attachments`, `400 invalid_reply_target` (другой чат/не существует), `400` (вложение не моё/не pending/другой чат), `403 dm_frozen`, `403`, `404`, `429` |
 | `PATCH /api/messages/{id}` | `{content}` | `200 Message` (`edited_at` установлен; тот же текст — без изменений и без события); `message_edited` | `403 not_message_author`, `403 dm_frozen`, `400 message_deleted`, `400 empty_message` (пустое без вложений), `413 message_too_large`, `404 message_not_found`; потерян доступ к чату — `403`/`404` как для чата |
 | `DELETE /api/messages/{id}` | — | `204`; `message_deleted`. Повторное удаление — `204` без события | `403 forbidden` (не автор и не admin комнаты; в DM — только автор), `403 dm_frozen`, `404 message_not_found` |
-| `GET /api/me/unread` (этап 9) | — | `200 {items: [{chat: ChatRef, unread: number, last_message_id}]}` (`unread` ≤ 100) | — |
-| `POST /api/{chat}/read` (этап 9) | `{last_read_message_id}` | `204`; всем вкладкам пользователя `unread_update` | `404` |
+| `GET /api/me/unread` | — | `200 {items: [{chat: ChatRef, unread: number, last_read_message_id: number, last_message_id: number\|null}]}` — все мои комнаты и все мои DM (в т.ч. frozen). `unread` ≤ 100; считаются неудалённые чужие сообщения после курсора | — |
+| `POST /api/{chat}/read` | `{last_read_message_id ≥ 0}` | `204`; курсор только растёт (`GREATEST`) и не уходит дальше последнего сообщения чата; всем вкладкам пользователя `unread_update`. Frozen DM тоже можно отметить | `400 validation_error`, `403 forbidden` (public-комната, не участник), `403 room_banned`, `404` (private, нет чата, не сторона DM) |
 
 `attachment_ids` — свои pending-вложения этого же чата (иначе `400 invalid_attachment`), не больше 10 (`413 too_many_attachments`); с вложениями текст может быть пустым, и правка может оставить сообщение без текста. Удаление сообщения удаляет его вложения (строки и файлы). `around` возвращает окно `limit` (2–100) с центром на сообщении: `limit/2` до него и остальное начиная с него. Отправка ограничена 5/с на пользователя (WS и REST вместе). Повтор `client_msg_id` того же автора возвращает уже созданное сообщение (`201`, без повторной рассылки) и не расходует лимит.
 
@@ -206,7 +206,8 @@ Page<T>      = { items: T[], has_more: boolean, next_cursor: number|null }
   "reply_to_message_id": 1042,          // optional
   "attachment_ids": [77] }              // optional
 
-// пометить прочитанным до id включительно (этап 9)
+// пометить прочитанным до id включительно; ответ — `unread_update` во все вкладки
+// (ошибки как у REST: error{code: forbidden | room_banned | room_not_found | not_found})
 { "type": "mark_read", "chat": { "type": "room", "id": 12 }, "last_read_message_id": 1050 }
 ```
 
@@ -215,7 +216,8 @@ Page<T>      = { items: T[], has_more: boolean, next_cursor: number|null }
 ### 12.3. Server → Client
 
 ```jsonc
-// при подключении
+// при подключении — всегда первое событие; приходит, когда чаты соединения уже подписаны
+// (события, случившиеся за время подключения, идут следом, не теряются)
 { "type": "hello", "user_id": 3, "session_id": 41, "server_time": "2026-11-23T10:00:00Z",
   "heartbeat_interval_ms": 25000, "afk_timeout_ms": 60000 }
 { "type": "presence_snapshot", "users": [ { "user_id": 7, "presence": "AFK" }, ... ] }  // сразу после hello: не-offline из аудитории; не перечисленные — offline
@@ -245,7 +247,8 @@ Page<T>      = { items: T[], has_more: boolean, next_cursor: number|null }
 { "type": "room_joined", "room": { /* RoomSummary */ } }            // мне, во все вкладки (join/accept invite/create)
 { "type": "room_updated", "room": { /* RoomSummary, my_role — роль получателя */ } }
 { "type": "member_joined", "room_id": 12, "user": { /* UserPublic */ }, "member_count": 31 }
-{ "type": "member_removed", "room_id": 12, "user_id": 7, "reason": "left" | "banned", "member_count": 30 }
+{ "type": "member_removed", "room_id": 12, "user_id": 7, "reason": "left" | "banned" | "account_deleted", "member_count": 30 }
+// account_deleted: клиент переподписывает закэшированные сообщения этого пользователя как "Deleted user"
 { "type": "member_role_changed", "room_id": 12, "user_id": 7, "role": "admin" | "member" }
 { "type": "invitation_received", "invitation": { "id": 3, "room": { "id": 12, "name": "dev" }, "inviter": { /* UserPublic */ } } }
 

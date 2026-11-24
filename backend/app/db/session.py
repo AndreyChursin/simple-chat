@@ -10,10 +10,15 @@ def _create_engine() -> AsyncEngine:
     settings = get_settings()
     if settings.db_disable_pool:
         return create_async_engine(settings.database_url, poolclass=NullPool)
+    # A fixed pool: overflow connections are closed when returned, and opening one costs a SCRAM
+    # handshake (thousands of HMAC rounds in Python, on the event loop). Under a burst — 300 sockets
+    # connecting at once — that churn stalled message delivery for seconds; waiting for a pooled
+    # connection is far cheaper.
     return create_async_engine(
         settings.database_url,
-        pool_size=10,
-        max_overflow=20,
+        pool_size=30,
+        max_overflow=0,
+        pool_timeout=30,
         pool_pre_ping=True,
     )
 

@@ -234,6 +234,7 @@ CHECK `num_nonnulls(room_id, dm_id) = 1`.
 CHECK `num_nonnulls(room_id, dm_id) = 1`; UNIQUE `(user_id, room_id) WHERE room_id IS NOT NULL`; UNIQUE `(user_id, dm_id) WHERE dm_id IS NOT NULL`.
 - `mark_read` — `UPDATE ... SET last_read_message_id = GREATEST(last_read_message_id, :id)` (монотонно).
 - При вступлении в комнату создаётся с `last_read_message_id = max(id)` комнаты (старая история не считается непрочитанной). До этапа 4 (таблицы `messages` ещё нет) — `0`.
+- Для DM строка создаётся при первом `mark_read` (upsert); пока её нет, курсор считается `0` — непрочитанной считается вся чужая история DM.
 - При выходе/бане строка удаляется.
 
 Подсчёт непрочитанного (ограничен 100 → UI «99+»), использует `ix_messages_room_id`:
@@ -286,7 +287,8 @@ FROM chat_read_states crs WHERE crs.user_id = :user_id AND crs.room_id IS NOT NU
 | `messages` в DM | остаются, `author_id = NULL` | SET NULL |
 | `chat_read_states` пользователя | удаляются | CASCADE |
 
-3. После commit: `rmtree` каталогов удалённых комнат (и полностью осиротевших DM); `room_access_revoked{reason:"room_deleted"}` участникам удалённых комнат; `dm_frozen{reason:"user_deleted"}` собеседникам; `presence_update offline`; закрыть все WS пользователя.
+   До `DELETE`: membership в чужих комнатах удаляется через сервис (`member_count` - 1, блокировка комнат в порядке id), pending-вложения пользователя (`message_id IS NULL`) удаляются сразу (строки + файлы после commit), не дожидаясь GC.
+3. После commit: `presence_update offline` аудитории пользователя сразу (без grace) и `session_revoked` + close 4001 всем его соединениям; `rmtree` каталогов удалённых комнат (и полностью осиротевших DM); `room_access_revoked{reason:"room_deleted"}` участникам удалённых комнат; `member_removed{reason:"account_deleted"}` участникам чужих комнат, где он был; `friend_removed` бывшим друзьям; `friend_request_resolved{cancelled}` второй стороне pending-заявок; `dm_frozen{reason:"user_deleted"}` собеседникам.
 
 ### 3.3. Прочие удаления
 

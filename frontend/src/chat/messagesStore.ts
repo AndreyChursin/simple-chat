@@ -69,6 +69,8 @@ interface MessagesStore {
   retryPending: (key: string, clientMsgId: string) => void;
   removePending: (key: string, clientMsgId: string) => void;
   markDeleted: (key: string, messageId: number) => void;
+  /** The author deleted their account: their messages stay, signed "Deleted user". */
+  anonymize: (userId: number) => void;
   drop: (key: string) => void;
   reset: () => void;
 }
@@ -170,6 +172,23 @@ export const useMessages = create<MessagesStore>((set, get) => {
           return m;
         }),
       })),
+
+    anonymize: (userId) =>
+      set((s) => {
+        const gone = { id: null, username: 'Deleted user', display_name: null, presence: 'offline' as const };
+        const chats: Record<string, ChatState> = {};
+        for (const [key, c] of Object.entries(s.chats)) {
+          chats[key] = {
+            ...c,
+            messages: c.messages.map((m) => {
+              const author = m.author.id === userId ? gone : m.author;
+              const reply = m.reply_to && m.reply_to.author.id === userId ? { ...m.reply_to, author: gone } : m.reply_to;
+              return author === m.author && reply === m.reply_to ? m : { ...m, author, reply_to: reply };
+            }),
+          };
+        }
+        return { chats };
+      }),
 
     drop: (key) =>
       set((s) => {

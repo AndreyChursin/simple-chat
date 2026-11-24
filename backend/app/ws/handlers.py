@@ -10,9 +10,10 @@ from app.core.errors import AppError
 from app.db.models import User
 from app.db.session import SessionLocal
 from app.services import messages as message_service
+from app.services import unread as unread_service
 from app.services.access import ChatRef
 from app.ws.manager import Connection, manager
-from app.ws.protocol import Activity, Heartbeat, SendMessage, Typing, client_event
+from app.ws.protocol import Activity, Heartbeat, MarkRead, SendMessage, Typing, client_event
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +44,15 @@ async def handle(conn: Connection, username: str, payload: Any) -> None:
             return
         if isinstance(event, SendMessage):
             await _send_message(conn, event)
+            return
+        if isinstance(event, MarkRead):
+            async with SessionLocal() as db:
+                await unread_service.mark_read(
+                    db,
+                    user_id=conn.user_id,
+                    chat=ChatRef(event.chat.type, event.chat.id),
+                    last_read_message_id=event.last_read_message_id,
+                )
     except AppError as exc:
         _error(conn, req_id, exc.code, exc.message)
     except Exception:

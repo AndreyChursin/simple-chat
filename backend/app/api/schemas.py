@@ -438,3 +438,25 @@ class DmOut(BaseModel):
     peer: UserPublic
     frozen: bool
     frozen_reason: DmFrozenReason | None
+
+
+# --- unread (docs/API_AND_WS_SPEC.md §9) ----------------------------------------------------------
+
+
+class UnreadItemOut(BaseModel):
+    chat: ChatRefOut
+    unread: int
+    last_read_message_id: int
+    last_message_id: int | None
+
+
+class UnreadList(BaseModel):
+    items: list[UnreadItemOut]
+
+
+class MarkReadRequest(StrictModel):
+    last_read_message_id: int = Field(ge=0)
+
+
+class DeleteAccountRequest(StrictModel):
+    password: str = Field(min_length=1, max_length=128)

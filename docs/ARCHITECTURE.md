@@ -78,7 +78,7 @@ services:
       db: { condition: service_healthy }
       mailpit: { condition: service_started }
     # CMD задан в backend/Dockerfile:
-    # ["sh", "-c", "alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1 --proxy-headers --forwarded-allow-ips='*' --ws-ping-interval 20 --ws-ping-timeout 20"]
+    # ["sh", "-c", "alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1 --proxy-headers --forwarded-allow-ips='*' --ws-ping-interval 20 --ws-ping-timeout 20 --ws-max-size 16384 --ws-per-message-deflate false"]
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
       interval: 5s
@@ -192,6 +192,7 @@ def aggregate(user_id) -> Presence:
 
   Тикер нужен только для перехода online→AFK; остальные переходы событийные. Если результат отличается от `presence[user_id]` → `presence_update` аудитории (включая вкладки самого пользователя). Худшая задержка перехода online→AFK: 60 с + ≤ 1 с тикера (требование «> 1 минуты» соблюдено, рассылка < 2 с после факта).
 - Новое соединение считается активным (`last_activity = connected_at`).
+- **Без permessage-deflate:** события короткие, а сжатие идёт отдельно на каждое соединение (zlib-контекст и CPU на каждый кадр каждому получателю) — при fan-out в большую комнату это было главной статьёй CPU. Пул БД фиксированный (`pool_size=30`, без overflow): новое соединение — это SCRAM-рукопожатие на Python в event loop, и «одноразовые» overflow-соединения под всплеском подключений тормозили доставку на секунды (найдено нагрузочным тестом).
 - **Мёртвые соединения** (обрыв сети без close): uvicorn ping 20 с / timeout 20 с → disconnect. Нормальное закрытие вкладки/браузера даёт close frame сразу → offline ≤ 2 с.
 - Скрытые вкладки браузер может троттлить — это не влияет на корректность: соединение открыто (≠ offline), активности нет (→ AFK через 60 с), что соответствует ТЗ.
 

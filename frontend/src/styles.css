@@ -454,3 +454,10 @@ code { font-size: 0.9em; }
   background: var(--bg); color: var(--fg); min-width: 0; max-width: 100%; }
 .ban-form { margin-bottom: 16px; padding-bottom: 16px; border-bottom: 1px solid var(--border); }
 .ban-form h3 { margin: 0 0 8px; font-size: 1em; }
+
+/* ---- unread (FRONTEND_SPEC §4.3) ----------------------------------------------------------------- */
+.unread-sep { display: flex; align-items: center; gap: 8px; margin: 8px 16px; color: var(--danger); font-size: 0.8em; font-weight: 600; }
+.unread-sep::before, .unread-sep::after { content: ''; flex: 1; border-top: 1px solid var(--danger); }
+.nav-sidebar.collapsed .badge { margin: 4px 0 0; }
+.consequences { margin: 0 0 12px; padding-left: 20px; }
+.consequences li { margin-bottom: 4px; }

@@ -2,7 +2,7 @@ import { useState, type FormEvent, type ReactNode } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { forgotPassword, login, register, resetPassword } from '../api/auth';
 import { ApiError } from '../api/client';
-import { useSetMe } from '../auth/session';
+import { takeAccountDeleted, useSetMe } from '../auth/session';
 import {
   apiErrorToFields,
   Field,
@@ -37,6 +37,7 @@ function validatePassword(password: string, confirm: string, field = 'password')
 
 export function LoginPage() {
   const setMe = useSetMe();
+  const [deleted] = useState(takeAccountDeleted);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [keep, setKeep] = useState(false);
@@ -61,6 +62,7 @@ export function LoginPage() {
   return (
     <AuthCard title="Sign in">
       <form onSubmit={onSubmit} noValidate>
+        {deleted && <FormNotice message="Your account was deleted." />}
         <FormError message={error} />
         <Field label="E-mail" name="email" type="email" autoComplete="email" required autoFocus
           value={email} onChange={(e) => setEmail(e.target.value)} />

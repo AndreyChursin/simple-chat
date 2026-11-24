@@ -96,7 +96,9 @@
 - В памяти держим до 2000 сообщений на чат; при превышении обрезаем самые новые/старые вне вьюпорта (виртуализация гарантирует плавность при 10 000+).
 - Индикатор загрузки сверху; «Beginning of conversation» при `has_more=false`.
 
-**Отметка о прочтении:** когда последнее сообщение видно и вкладка видима (`document.visibilityState === 'visible'`) → `mark_read` (debounce 500 мс). Бейдж чата сбрасывается локально сразу, остальные вкладки — по `unread_update`.
+**Отметка о прочтении:** когда последнее сообщение видно и вкладка видима (`document.visibilityState === 'visible'`) → `mark_read` (debounce 500 мс; при уходе из чата — сразу; при закрытом сокете — `POST /api/{chat}/read`). Бейдж чата сбрасывается локально сразу, остальные вкладки — по `unread_update`.
+
+**Счётчики:** `unreadStore` заполняется `GET /api/me/unread` при каждом открытии сокета (вход и reconnect), до этого nav показывает `unread` из `/rooms/mine` и `/contacts`. `new_message` от другого автора увеличивает счётчик чата (до 100), кроме чата, который эта вкладка сейчас читает (открыт, внизу, вкладка видима). Разделитель «New messages» ставится по курсору, запомненному при открытии чата; если непрочитанных больше, чем в первой странице, лента открывается окном вокруг курсора (`around`).
 
 **Typing:** строка «bob is typing…» над композером (исчезает через 5 с без новых событий).
 
@@ -153,7 +155,7 @@
 ## 9. Profile (`/profile`)
 - Email (read-only), **username (read-only, с подписью «Username cannot be changed»)**, display name (редактируемо).
 - **Change password:** current, new, confirm; после успеха тост «Other sessions were signed out».
-- **Delete account:** danger zone; модалка перечисляет последствия: «Your account will be deleted; rooms you own (N) will be deleted with all messages and files; you will be removed from other rooms; your messages in other rooms will remain as "Deleted user"» + ввод пароля.
+- **Delete account:** danger zone; модалка перечисляет последствия: «Your account will be deleted; rooms you own (N) will be deleted with all messages and files; you will be removed from other rooms; your messages in other rooms will remain as "Deleted user"» + ввод пароля. После удаления вкладка уходит на `/login` с сообщением «Your account was deleted.», остальные вкладки и сессии — по `session_revoked`.
 
 ## 10. Клиентская архитектура
 - `src/api/` — типизированные функции REST (типы из API_AND_WS_SPEC.md, общий `ApiError` с `code`).

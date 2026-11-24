@@ -20,6 +20,7 @@ from app.api.schemas import (
 )
 from app.core.deps import CurrentUser, DbSession
 from app.services import contacts as contact_service
+from app.services import unread as unread_service
 
 router = APIRouter(tags=["contacts"])
 
@@ -27,8 +28,16 @@ router = APIRouter(tags=["contacts"])
 @router.get("/contacts")
 async def contacts(user: CurrentUser, db: DbSession) -> ContactsOut:
     c = await contact_service.list_contacts(db, user=user)
+    unread = await unread_service.unread_map(db, user_id=user.id)
     return ContactsOut(
-        friends=[FriendOut(**UserPublic.of(f).model_dump(), dm_id=dm_id) for f, dm_id in c.friends],
+        friends=[
+            FriendOut(
+                **UserPublic.of(f).model_dump(),
+                dm_id=dm_id,
+                unread=unread.get(("dm", dm_id), 0) if dm_id is not None else 0,
+            )
+            for f, dm_id in c.friends
+        ],
         incoming=[
             IncomingRequest(
                 id=r.id, from_=UserPublic.of(r.requester), message=r.message, created_at=r.created_at
@@ -41,7 +50,10 @@ async def contacts(user: CurrentUser, db: DbSession) -> ContactsOut:
             )
             for r in c.outgoing
         ],
-        past_dms=[PastDm(dm_id=dm.id, peer=UserPublic.of(peer)) for dm, peer in c.past_dms],
+        past_dms=[
+            PastDm(dm_id=dm.id, peer=UserPublic.of(peer), unread=unread.get(("dm", dm.id), 0))
+            for dm, peer in c.past_dms
+        ],
     )
 
 

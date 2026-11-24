@@ -4,6 +4,7 @@ import { Link, NavLink, useNavigate } from 'react-router-dom';
 import { contactKeys, fetchContacts } from '../api/contacts';
 import { fetchMyRooms, roomKeys, type RoomSummary } from '../api/rooms';
 import { UserPresence } from '../components/Presence';
+import { totalUnread, useUnread } from '../stores/unread';
 import { CreateRoomModal } from '../rooms/CreateRoomModal';
 import { useNavAccordion, type NavSection } from './navAccordion';
 
@@ -36,6 +37,10 @@ export function NavSidebar({ active }: { active: ActiveChat | null }) {
   const [search, setSearch] = useState('');
   const [creating, setCreating] = useState(false);
   const [collapsed, setCollapsed] = useState(readCollapsed);
+  const live = useUnread((s) => s.byChat);
+  // Live counters (WS) win over the REST snapshot of /rooms/mine and /contacts.
+  const roomUnread = (r: RoomSummary) => live[`room:${r.id}`] ?? r.unread;
+  const dmUnread = (dmId: number | null, rest: number) => (dmId === null ? 0 : (live[`dm:${dmId}`] ?? rest));
 
   const publicRooms = mine.data?.public ?? [];
   const privateRooms = mine.data?.private ?? [];
@@ -83,6 +88,9 @@ export function NavSidebar({ active }: { active: ActiveChat | null }) {
         <button className="btn ghost small" aria-label="Create room" title="Create room" onClick={() => setCreating(true)}>
           ＋
         </button>
+        {totalUnread(live) > 0 && (
+          <span className="badge" title="Unread messages">{unreadBadge(totalUnread(live))}</span>
+        )}
         {creationModal}
       </nav>
     );
@@ -93,8 +101,9 @@ export function NavSidebar({ active }: { active: ActiveChat | null }) {
     const rooms = section === 'contacts' ? [] : lists[section];
     const unread =
       section === 'contacts'
-        ? friends.reduce((sum, f) => sum + f.unread, 0)
-        : rooms.reduce((sum, r) => sum + r.unread, 0);
+        ? friends.reduce((sum, f) => sum + dmUnread(f.dm_id, f.unread), 0) +
+          past.reduce((sum, d) => sum + dmUnread(d.dm_id, d.unread), 0)
+        : rooms.reduce((sum, r) => sum + roomUnread(r), 0);
     return (
       <section key={section} className="nav-section" data-section={section} data-open={open}>
         <button className="nav-section-header" aria-expanded={open} onClick={() => toggle(section)}>
@@ -103,14 +112,17 @@ export function NavSidebar({ active }: { active: ActiveChat | null }) {
         </button>
         {open && section !== 'contacts' && (
           <ul className="nav-list">
-            {rooms.map((r) => (
-              <li key={r.id}>
-                <NavLink to={`/rooms/${r.id}`} className={r.unread > 0 ? 'unread' : undefined}>
-                  <span className="nav-item-name">#{r.name}</span>
-                  {r.unread > 0 && <span className="badge">{unreadBadge(r.unread)}</span>}
-                </NavLink>
-              </li>
-            ))}
+            {rooms.map((r) => {
+              const n = roomUnread(r);
+              return (
+                <li key={r.id}>
+                  <NavLink to={`/rooms/${r.id}`} className={n > 0 ? 'unread' : undefined}>
+                    <span className="nav-item-name">#{r.name}</span>
+                    {n > 0 && <span className="badge">{unreadBadge(n)}</span>}
+                  </NavLink>
+                </li>
+              );
+            })}
             {rooms.length === 0 && (
               <li className="muted nav-empty">
                 {q ? 'No matches' : section === 'public' ? <Link to="/rooms/catalog">Browse rooms</Link> : 'None yet'}
@@ -121,22 +133,25 @@ export function NavSidebar({ active }: { active: ActiveChat | null }) {
         {open && section === 'contacts' && (
           <>
             <ul className="nav-list" aria-label="Friends">
-              {friends.map((f) => (
-                <li key={f.id ?? f.username}>
-                  {f.dm_id !== null ? (
-                    <NavLink to={`/dm/${f.dm_id}`} className={f.unread > 0 ? 'unread' : undefined}>
+              {friends.map((f) => {
+                const n = dmUnread(f.dm_id, f.unread);
+                return (
+                  <li key={f.id ?? f.username}>
+                    {f.dm_id !== null ? (
+                      <NavLink to={`/dm/${f.dm_id}`} className={n > 0 ? 'unread' : undefined}>
+                        <span className="nav-item-name">
+                          <UserPresence user={f} /> {f.username}
+                        </span>
+                        {n > 0 && <span className="badge">{unreadBadge(n)}</span>}
+                      </NavLink>
+                    ) : (
                       <span className="nav-item-name">
                         <UserPresence user={f} /> {f.username}
                       </span>
-                      {f.unread > 0 && <span className="badge">{unreadBadge(f.unread)}</span>}
-                    </NavLink>
-                  ) : (
-                    <span className="nav-item-name">
-                      <UserPresence user={f} /> {f.username}
-                    </span>
-                  )}
-                </li>
-              ))}
+                    )}
+                  </li>
+                );
+              })}
               {friends.length === 0 && (
                 <li className="muted nav-empty">{q ? 'No matches' : <Link to="/contacts">Add a friend</Link>}</li>
               )}
@@ -148,16 +163,20 @@ export function NavSidebar({ active }: { active: ActiveChat | null }) {
                 </button>
                 {(pastOpen || !!q) && (
                   <ul className="nav-list" aria-label="Past conversations">
-                    {past.map((d) => (
-                      <li key={d.dm_id}>
-                        <NavLink to={`/dm/${d.dm_id}`}>
-                          <span className="nav-item-name">
-                            <span aria-hidden>🔒</span>{' '}
-                            {d.peer.id === null ? <em>{d.peer.username}</em> : d.peer.username}
-                          </span>
-                        </NavLink>
-                      </li>
-                    ))}
+                    {past.map((d) => {
+                      const n = dmUnread(d.dm_id, d.unread);
+                      return (
+                        <li key={d.dm_id}>
+                          <NavLink to={`/dm/${d.dm_id}`} className={n > 0 ? 'unread' : undefined}>
+                            <span className="nav-item-name">
+                              <span aria-hidden>🔒</span>{' '}
+                              {d.peer.id === null ? <em>{d.peer.username}</em> : d.peer.username}
+                            </span>
+                            {n > 0 && <span className="badge">{unreadBadge(n)}</span>}
+                          </NavLink>
+                        </li>
+                      );
+                    })}
                   </ul>
                 )}
               </div>

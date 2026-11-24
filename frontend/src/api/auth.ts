@@ -78,3 +78,7 @@ export const revokeSession = (id: number): Promise<void> =>
 
 export const revokeOtherSessions = (): Promise<void> =>
   apiRequest<void>('/sessions?scope=others', { method: 'DELETE' });
+
+/** Delete account (API_AND_WS_SPEC §3): cascade on the server, every session ends. */
+export const deleteAccount = (password: string): Promise<void> =>
+  apiRequest<void>('/me', { method: 'DELETE', body: JSON.stringify({ password }) });

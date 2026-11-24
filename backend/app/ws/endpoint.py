@@ -93,25 +93,22 @@ async def websocket_endpoint(ws: WebSocket) -> None:
     tab_id = (ws.query_params.get("tab_id") or uuid.uuid4().hex)[:64]
 
     await ws.accept()
+    hello = {
+        "type": "hello",
+        "user_id": user_id,
+        "session_id": session_id,
+        "server_time": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+        "heartbeat_interval_ms": HEARTBEAT_INTERVAL_MS,
+        "afk_timeout_ms": int(manager.afk_timeout * 1000),
+    }
     conn = await manager.connect(
-        ws, user_id=user_id, session_id=session_id, tab_id=tab_id, load_chats=load_user_chats
+        ws, user_id=user_id, session_id=session_id, tab_id=tab_id, load_chats=load_user_chats, hello=hello
     )
     try:
         # The session may have been revoked between the handshake check and registration.
         if not await _session_alive(session_id):
             await manager.revoke_sessions([session_id])
             return
-        manager.send_to_connection(
-            conn,
-            {
-                "type": "hello",
-                "user_id": user_id,
-                "session_id": session_id,
-                "server_time": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
-                "heartbeat_interval_ms": HEARTBEAT_INTERVAL_MS,
-                "afk_timeout_ms": int(manager.afk_timeout * 1000),
-            },
-        )
         await manager.announce(conn)
         await _read_loop(ws, conn, username)
     finally:

@@ -6,6 +6,7 @@ import {
   editMessage,
   fetchAround,
   fetchMessages,
+  markRead,
   searchMessages,
   type ChatRef,
   type Message,
@@ -14,6 +15,7 @@ import type { Attachment } from '../api/attachments';
 import { ApiError } from '../api/client';
 import { Modal } from '../components/Modal';
 import { toast } from '../stores/toasts';
+import { useUnread } from '../stores/unread';
 import { socket } from '../ws/socket';
 import { AT_BOTTOM_THRESHOLD_PX, countNewAtTail, newAtTail, shouldFollow } from './autoscroll';
 import { Composer, type ComposerHandle } from './Composer';
@@ -63,6 +65,9 @@ export function ChatWindow({ chat, me, canModerate, readOnly = false, frozenText
   const composer = useRef<ComposerHandle>(null);
   const tailRef = useRef(0);
   const messages = state.messages;
+  // Read cursor when the chat was opened with unread messages: "New messages" goes after it.
+  const [marker, setMarker] = useState<number | null>(null);
+  const triedMarkerWindow = useRef(false);
 
   // --- loading -------------------------------------------------------------------------------------
   const loadLatest = useCallback(async () => {
@@ -81,7 +86,11 @@ export function ChatWindow({ chat, me, canModerate, readOnly = false, frozenText
     setReplyTo(null);
     setEditing(null);
     setUnseen(0);
-    setAtBottom(true);
+    const unread = useUnread.getState();
+    const openedAt = (unread.byChat[key] ?? 0) > 0 ? (unread.lastRead[key] ?? 0) : null;
+    setMarker(openedAt);
+    triedMarkerWindow.current = false;
+    setAtBottom(openedAt === null); // with unread we open at the first of them, not at the bottom
     if (!store().get(key).loaded) void loadLatest();
     else setGeneration((g) => g + 1);
   }, [key, loadLatest, store]);
@@ -151,6 +160,63 @@ export function ChatWindow({ chat, me, canModerate, readOnly = false, frozenText
     }
     virtuoso.current?.scrollToIndex({ index: 'LAST', behavior: 'smooth' });
   }, [key, loadLatest, store]);
+
+  // --- unread: "New messages" separator and marking read ------------------------------------------------------
+  const firstUnreadId = useMemo(
+    () => (marker === null ? null : (messages.find((m) => m.id > marker && m.author.id !== me.id)?.id ?? null)),
+    [marker, messages, me.id],
+  );
+  // More unread than the latest page holds: open the window around the read cursor instead.
+  useEffect(() => {
+    if (marker === null || marker === 0 || triedMarkerWindow.current || !state.loaded || firstUnreadId !== null) return;
+    const oldest = messages.find((m) => m.id > 0);
+    if (!state.hasMoreBefore || !oldest || oldest.id <= marker) return;
+    triedMarkerWindow.current = true;
+    fetchAround(chat, marker)
+      .then((res) => {
+        store().setWindow(key, res.items, res.has_more_before, res.has_more_after);
+        setGeneration((g) => g + 1);
+      })
+      .catch(() => undefined);
+  }, [marker, firstUnreadId, state.loaded, state.hasMoreBefore, messages, key]);
+
+  const [visible, setVisible] = useState(() => document.visibilityState === 'visible');
+  useEffect(() => {
+    const onChange = () => setVisible(document.visibilityState === 'visible');
+    document.addEventListener('visibilitychange', onChange);
+    return () => document.removeEventListener('visibilitychange', onChange);
+  }, []);
+  const reading = visible && atBottom && state.loaded && !state.hasMoreAfter && !loadError;
+  const tailId = messages.filter((m) => m.id > 0).at(-1)?.id ?? 0;
+
+  useEffect(() => {
+    if (!reading) return;
+    useUnread.getState().setReading(key);
+    return () => {
+      if (useUnread.getState().reading === key) useUnread.getState().setReading(null);
+    };
+  }, [reading, key]);
+
+  // The badge clears at once; the server hears about it 500 ms later (or right away when leaving the chat).
+  const pendingRead = useRef<{ id: number; timer: ReturnType<typeof setTimeout> } | null>(null);
+  const flushRead = useCallback(() => {
+    const pending = pendingRead.current;
+    if (!pending) return;
+    clearTimeout(pending.timer);
+    pendingRead.current = null;
+    if (socket.connected) socket.send({ type: 'mark_read', chat, last_read_message_id: pending.id });
+    else void markRead(chat, pending.id).catch(() => undefined);
+  }, [chat.type, chat.id]);
+  useEffect(() => flushRead, [flushRead]);
+
+  useEffect(() => {
+    if (!reading || tailId <= 0) return;
+    const unread = useUnread.getState();
+    if ((unread.byChat[key] ?? 0) === 0 && (unread.lastRead[key] ?? 0) >= tailId) return;
+    unread.readUpTo(key, tailId);
+    if (pendingRead.current) clearTimeout(pendingRead.current.timer);
+    pendingRead.current = { id: tailId, timer: setTimeout(flushRead, 500) };
+  }, [reading, tailId, key, flushRead]);
 
   // --- jump to a message (quote / search hit) ------------------------------------------------------------
   const jumpTo = useCallback(
@@ -274,6 +340,7 @@ export function ChatWindow({ chat, me, canModerate, readOnly = false, frozenText
 
   // --- render ----------------------------------------------------------------------------------------------
   const jumpIndex = jumpTarget === null ? -1 : messages.findIndex((m) => m.id === jumpTarget);
+  const unreadIndex = firstUnreadId === null ? -1 : messages.findIndex((m) => m.id === firstUnreadId);
   const Header = useCallback(
     () => (
       <div className="feed-edge muted">
@@ -320,7 +387,13 @@ export function ChatWindow({ chat, me, canModerate, readOnly = false, frozenText
             className="feed-list"
             data={messages}
             firstItemIndex={state.firstItemIndex}
-            initialTopMostItemIndex={jumpIndex >= 0 ? { index: jumpIndex, align: 'center' } : messages.length - 1}
+            initialTopMostItemIndex={
+              jumpIndex >= 0
+                ? { index: jumpIndex, align: 'center' }
+                : unreadIndex >= 0
+                  ? { index: unreadIndex, align: 'start' }
+                  : messages.length - 1
+            }
             computeItemKey={(_, m) => m.client_msg_id ?? m.id}
             startReached={() => void loadOlder()}
             endReached={() => void loadNewer()}
@@ -333,15 +406,22 @@ export function ChatWindow({ chat, me, canModerate, readOnly = false, frozenText
             increaseViewportBy={{ top: 400, bottom: 200 }}
             components={{ Header }}
             itemContent={(index, m) => (
-              <MessageItem
-                message={m}
-                prev={messages[index - state.firstItemIndex - 1]}
-                myId={me.id}
-                canModerate={canModerate}
-                readOnly={readOnly}
-                highlighted={highlight === m.id}
-                {...actions}
-              />
+              <>
+                {m.id === firstUnreadId && (
+                  <div className="unread-sep" role="separator" aria-label="New messages">
+                    <span>New messages</span>
+                  </div>
+                )}
+                <MessageItem
+                  message={m}
+                  prev={messages[index - state.firstItemIndex - 1]}
+                  myId={me.id}
+                  canModerate={canModerate}
+                  readOnly={readOnly}
+                  highlighted={highlight === m.id}
+                  {...actions}
+                />
+              </>
             )}
           />
         )}

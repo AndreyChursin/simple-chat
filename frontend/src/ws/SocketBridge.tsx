@@ -2,13 +2,14 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import type { Me, Presence, UserPublic } from '../api/auth';
-import { contactKeys } from '../api/contacts';
+import { contactKeys, type Contacts, type Dm } from '../api/contacts';
 import { chatKey, fetchMessages, type ChatRef, type Message } from '../api/messages';
 import { roomKeys } from '../api/rooms';
 import { useMessages } from '../chat/messagesStore';
 import { useTyping } from '../chat/typingStore';
 import { ME_KEY } from '../queryClient';
 import { usePresenceStore } from '../stores/presence';
+import { fetchUnread, useUnread } from '../stores/unread';
 import { toast } from '../stores/toasts';
 import { socket, type ServerEvent } from './socket';
 
@@ -54,6 +55,11 @@ export function SocketBridge() {
 
   useEffect(() => {
     const messages = useMessages.getState();
+    const unread = useUnread.getState();
+    const loadUnread = () =>
+      fetchUnread()
+        .then((items) => useUnread.getState().load(items))
+        .catch(() => undefined);
     const roomGone = (roomId: number, text: string | null) => {
       messages.drop(chatKey({ type: 'room', id: roomId }));
       qc.removeQueries({ queryKey: roomKeys.detail(roomId) });
@@ -73,6 +79,15 @@ export function SocketBridge() {
           const key = chatKey(m.chat);
           messages.upsert(key, m);
           if (e.type === 'new_message' && m.author.id !== null) useTyping.getState().stopped(key, m.author.id);
+          const myId = qc.getQueryData<Me | null>(ME_KEY)?.id;
+          if (e.type === 'new_message' && m.author.id !== myId && m.id > (useUnread.getState().lastRead[key] ?? 0)) {
+            unread.bump(key);
+          }
+          break;
+        }
+        case 'unread_update': {
+          const chat = e.chat as ChatRef;
+          unread.set(chatKey(chat), Number(e.unread), Number(e.last_read_message_id));
           break;
         }
         case 'message_deleted':
@@ -117,6 +132,7 @@ export function SocketBridge() {
           const roomId = Number(e.room_id);
           void qc.invalidateQueries({ queryKey: roomKeys.members(roomId) });
           void qc.invalidateQueries({ queryKey: roomKeys.detail(roomId) });
+          if (e.type === 'member_removed' && e.reason === 'account_deleted') messages.anonymize(Number(e.user_id));
           if (e.type === 'member_removed' && e.reason === 'banned') {
             void qc.invalidateQueries({ queryKey: roomKeys.bans(roomId) });
           }
@@ -145,6 +161,16 @@ export function SocketBridge() {
           void qc.invalidateQueries({ queryKey: ['user'] });
           break;
         case 'dm_frozen':
+          if (e.reason === 'user_deleted') {
+            const dmId = Number(e.dm_id);
+            const peerId =
+              qc.getQueryData<Dm>(contactKeys.dm(dmId))?.peer.id ??
+              qc.getQueryData<Contacts>(contactKeys.all)?.friends.find((f) => f.dm_id === dmId)?.id;
+            if (peerId) messages.anonymize(peerId); // their messages stay, signed "Deleted user"
+          }
+          void qc.invalidateQueries({ queryKey: contactKeys.dm(Number(e.dm_id)) });
+          void qc.invalidateQueries({ queryKey: contactKeys.all });
+          break;
         case 'dm_unfrozen':
           void qc.invalidateQueries({ queryKey: contactKeys.dm(Number(e.dm_id)) });
           void qc.invalidateQueries({ queryKey: contactKeys.all });
@@ -161,6 +187,7 @@ export function SocketBridge() {
     };
 
     socket.onOpen = (reconnected) => {
+      void loadUnread();
       if (!reconnected) return;
       void qc.invalidateQueries({ queryKey: roomKeys.mine });
       void qc.invalidateQueries({ queryKey: roomKeys.myInvitations });
@@ -181,6 +208,7 @@ export function SocketBridge() {
       socket.stop();
       messages.reset();
       usePresenceStore.getState().reset();
+      useUnread.getState().reset();
     };
   }, [qc]);
 

@@ -38,5 +38,12 @@ class SendMessage(_Event):
     attachment_ids: list[int] = Field(default_factory=list, max_length=100)
 
 
-ClientEvent = Annotated[Heartbeat | Activity | Typing | SendMessage, Field(discriminator="type")]
-client_event: TypeAdapter[Heartbeat | Activity | Typing | SendMessage] = TypeAdapter(ClientEvent)
+class MarkRead(_Event):
+    type: Literal["mark_read"]
+    chat: ChatRefIn
+    last_read_message_id: int = Field(ge=0)
+
+
+AnyClientEvent = Heartbeat | Activity | Typing | SendMessage | MarkRead
+ClientEvent = Annotated[AnyClientEvent, Field(discriminator="type")]
+client_event: TypeAdapter[AnyClientEvent] = TypeAdapter(ClientEvent)

@@ -79,14 +79,25 @@ class ConnectionManager:
     # --- lifecycle --------------------------------------------------------------------------------
 
     async def connect(
-        self, ws: WebSocket, *, user_id: int, session_id: int, tab_id: str, load_chats: ChatLoader
+        self,
+        ws: WebSocket,
+        *,
+        user_id: int,
+        session_id: int,
+        tab_id: str,
+        load_chats: ChatLoader,
+        hello: Event | None = None,
     ) -> Connection:
-        """Register an accepted socket and start its writer. The user's chats are loaded from the DB
-        on their first connection and dropped once they are offline. Call `announce` after `hello`."""
+        """Register an accepted socket and start its writer. `hello` is queued before the connection
+        becomes visible, so it is always the first event. The user's chats are loaded from the DB on
+        their first connection (dropped once they are offline) before anything is written to the socket.
+        Call `announce` afterwards."""
         now = self.clock()
         conn = Connection(
             user_id=user_id, session_id=session_id, tab_id=tab_id, ws=ws, connected_at=now, last_activity=now
         )
+        if hello is not None:
+            self.send_to_connection(conn, hello)
         grace = self._grace.pop(user_id, None)
         if grace is not None:  # back within the grace period (page reload): nobody saw them leave
             grace.cancel()
@@ -94,7 +105,6 @@ class ConnectionManager:
         self.conns[conn.conn_id] = conn
         self.by_user.setdefault(user_id, set()).add(conn.conn_id)
         self.by_session.setdefault(session_id, set()).add(conn.conn_id)
-        conn.writer = asyncio.create_task(self._writer(conn), name=f"ws-writer-{conn.conn_id}")
         if first:
             self.user_chats[user_id] = set()
             chats = await load_chats(user_id)
@@ -102,6 +112,9 @@ class ConnectionManager:
             if user_id in self.user_chats:
                 for chat in chats:
                     self._subscribe(user_id, chat)
+        # Started only now: `hello` reaches the client once its chats are subscribed (it may act on
+        # them right away); events queued meanwhile follow it in order.
+        conn.writer = asyncio.create_task(self._writer(conn), name=f"ws-writer-{conn.conn_id}")
         return conn
 
     async def disconnect(self, conn: Connection) -> None:
@@ -217,6 +230,12 @@ class ConnectionManager:
         for conn in targets:
             self.send_to_connection(conn, {"type": "session_revoked"})
         await asyncio.gather(*(self._close(conn, CLOSE_UNAUTHENTICATED) for conn in targets))
+
+    async def forget_user(self, user_id: int, session_ids: Iterable[int]) -> None:
+        """Account deleted: offline for the current audience right away (before their chats change),
+        then `session_revoked` + close 4001 on every connection."""
+        await self._set_presence(user_id, "offline")
+        await self.revoke_sessions(session_ids)
 
     # --- presence ---------------------------------------------------------------------------------
 

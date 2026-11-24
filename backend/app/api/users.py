@@ -1,13 +1,14 @@
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Body, Query
+from fastapi import APIRouter, Body, Query, Response
 from pydantic import BaseModel, ValidationError
 from sqlalchemy import select
 
-from app.api.schemas import Me, MeResponse, UserProfile, UserPublic
-from app.core.deps import CurrentUser, DbSession
+from app.api.schemas import DeleteAccountRequest, Me, MeResponse, UserProfile, UserPublic
+from app.core.deps import CurrentUser, DbSession, clear_session_cookie
 from app.core.errors import AppError
 from app.db.models import User
+from app.services import accounts as account_service
 from app.services import contacts as contact_service
 
 router = APIRouter(tags=["users"])
@@ -88,3 +89,12 @@ async def update_me(user: CurrentUser, db: DbSession, body: Annotated[dict[str, 
         user.display_name = value
         await db.commit()
     return MeResponse(user=Me.of(user))
+
+
+@router.delete("/me", status_code=204)
+async def delete_me(body: DeleteAccountRequest, user: CurrentUser, db: DbSession) -> Response:
+    """Cascade of docs/DATA_MODEL.md §3.2; every session ends, the cookie is cleared."""
+    await account_service.delete_account(db, user=user, password=body.password)
+    response = Response(status_code=204)
+    clear_session_cookie(response)
+    return response
